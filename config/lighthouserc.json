@@ -1,0 +1,36 @@
+{
+  "//": "Antrique Web Studio — Lighthouse CI budget. Runs in CI on marketing routes; a PR that regresses Core Web Vitals or SEO fails the build, so SEO health cannot silently erode. Thresholds are targets to confirm.",
+  "ci": {
+    "collect": {
+      "url": [
+        "https://staging-antrique.dev/",
+        "https://staging-antrique.dev/services/ecommerce-development",
+        "https://staging-antrique.dev/industries/education",
+        "https://staging-antrique.dev/blog"
+      ],
+      "numberOfRuns": 3
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance":   ["error", { "minScore": 0.90 }],
+        "categories:seo":           ["error", { "minScore": 1.00 }],
+        "categories:accessibility": ["error", { "minScore": 0.95 }],
+        "categories:best-practices":["warn",  { "minScore": 0.95 }],
+
+        "largest-contentful-paint": ["error", { "maxNumericValue": 2500 }],
+        "cumulative-layout-shift":  ["error", { "maxNumericValue": 0.1 }],
+        "interaction-to-next-paint":["error", { "maxNumericValue": 200 }],
+        "total-blocking-time":      ["warn",  { "maxNumericValue": 200 }],
+
+        "meta-description":     ["error", {}],
+        "document-title":       ["error", {}],
+        "http-status-code":     ["error", {}],
+        "crawlable-anchors":    ["error", {}],
+        "canonical":            ["error", {}],
+        "image-alt":            ["error", {}],
+        "hreflang":             ["warn",  {}]
+      }
+    },
+    "upload": { "target": "temporary-public-storage" }
+  }
+}

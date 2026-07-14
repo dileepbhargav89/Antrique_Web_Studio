@@ -1,0 +1,941 @@
+openapi: 3.1.0
+
+# =============================================================================
+# Antrique Web Studio — REST API
+# Single source of truth for the v1 contract. No implementation.
+# Conventions: tenant-implicit (scope from token, never in URL); cursor
+# pagination; RFC 9457 problem-details errors; 404 (not 403) for foreign-tenant
+# rows; hosted-gateway payments (API never handles raw card data).
+# =============================================================================
+
+info:
+  title: Antrique Web Studio API
+  version: 1.0.0
+  description: >
+    REST API for the Antrique platform (marketing site + client portal +
+    delivery console). All endpoints are tenant-scoped via the authenticated
+    token. Breaking changes bump the URL major version; additive changes ship
+    within v1.
+  contact:
+    name: Antrique Platform Team
+    url: https://docs.antrique.dev
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.antrique.dev/api/v1
+    description: Production
+  - url: https://staging-api.antrique.dev/api/v1
+    description: Staging
+
+# Global default: every operation requires a bearer token unless it overrides
+# with `security: []` (the public/auth endpoints).
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Authentication and session lifecycle
+  - name: Leads
+    description: CRM pipeline — quote requests and lead management
+  - name: Projects
+    description: Delivery projects and their children
+  - name: Milestones
+    description: Project milestones (client-visible progress)
+  - name: Change Requests
+    description: Client-initiated change requests on a project
+  - name: Messages
+    description: Project message threads
+  - name: Billing
+    description: Invoices and payment initiation
+  - name: Assets
+    description: Project files and uploads
+  - name: Users
+    description: User administration
+  - name: Roles & Permissions
+    description: RBAC administration
+
+# =============================================================================
+# COMPONENTS — reusable pieces referenced by every path (keeps the spec DRY)
+# =============================================================================
+components:
+
+  # ---- Security schemes ----------------------------------------------------
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Short-lived JWT access token. Portal clients send it via an HTTP-only
+        Secure cookie; programmatic clients via the Authorization header.
+
+  # ---- Reusable parameters (pagination, sorting, filtering, search) --------
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Max items per page (capped server-side).
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous response's next_cursor.
+      required: false
+      schema: { type: string }
+    Sort:
+      name: sort
+      in: query
+      description: >
+        Comma-separated sortable fields. Leading '-' = descending
+        (e.g. `-created_at,due_date`). Only whitelisted, indexed fields.
+      required: false
+      schema: { type: string, example: "-created_at" }
+    Search:
+      name: q
+      in: query
+      description: Full-text search across the resource's searchable fields.
+      required: false
+      schema: { type: string }
+    StatusFilter:
+      name: status
+      in: query
+      description: Filter by lifecycle status (resource-specific enum).
+      required: false
+      schema: { type: string }
+    CreatedAfter:
+      name: created_after
+      in: query
+      required: false
+      schema: { type: string, format: date-time }
+    CreatedBefore:
+      name: created_before
+      in: query
+      required: false
+      schema: { type: string, format: date-time }
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: >
+        Client-generated key to make unsafe POSTs idempotent (retries do not
+        duplicate). Required on payment initiation.
+      required: false
+      schema: { type: string }
+
+  # ---- Reusable responses (error envelopes + rate-limit) -------------------
+  responses:
+    BadRequest:
+      description: Malformed or unparseable request.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Missing or invalid access token — client should authenticate.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: >
+        Authenticated but not permitted (missing permission, wrong tenant, or
+        step-up required). Re-authenticating with the same identity will not help.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: >
+        Resource not found. Note: a resource belonging to another tenant also
+        returns 404 (never 403) to avoid leaking its existence.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Version conflict (optimistic lock) or duplicate.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: Validation failed — see per-field errors.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ValidationProblem' }
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds to wait before retrying.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---- Schemas -------------------------------------------------------------
+  schemas:
+
+    # -- Shared envelopes --
+    Pagination:
+      type: object
+      properties:
+        next_cursor:
+          type: [string, "null"]
+          description: Cursor for the next page; null on the last page.
+        limit: { type: integer }
+      required: [next_cursor, limit]
+
+    # -- Error shapes (RFC 9457 problem details) --
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      properties:
+        type: { type: string, format: uri, example: "https://api.antrique.dev/errors/not-found" }
+        title: { type: string, example: "Resource not found" }
+        status: { type: integer, example: 404 }
+        detail: { type: string }
+        trace_id: { type: string, description: Correlates to request tracing in logs. }
+      required: [type, title, status]
+    ValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            errors:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+                required: [field, message]
+
+    # -- Audit fields mixed into every resource (read-only) --
+    AuditFields:
+      type: object
+      readOnly: true
+      properties:
+        created_at: { type: string, format: date-time, readOnly: true }
+        updated_at: { type: string, format: date-time, readOnly: true }
+        created_by: { type: [string, "null"], format: uuid, readOnly: true }
+        updated_by: { type: [string, "null"], format: uuid, readOnly: true }
+        version: { type: integer, readOnly: true, description: Optimistic-lock counter. }
+
+    # -- Auth --
+    LoginRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, description: Exchanged via the IdP; never stored by this API. }
+      required: [email, password]
+    TokenPair:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, description: Access-token TTL in seconds. }
+        token_type: { type: string, example: Bearer }
+      required: [access_token, expires_in, token_type]
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token: { type: string }
+      required: [refresh_token]
+
+    # -- Lead --
+    Lead:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            tenant_id: { type: string, format: uuid, readOnly: true }
+            contact_name: { type: string }
+            contact_email: { type: string, format: email }
+            organization: { type: [string, "null"] }
+            source: { type: string, description: e.g. quote-wizard, contact-form }
+            service_interest: { type: array, items: { type: string } }
+            industry: { type: [string, "null"] }
+            status:
+              type: string
+              enum: [new, qualified, quoted, converted, lost]
+              default: new
+            metadata: { type: object, additionalProperties: true, description: Tenant-specific custom fields. }
+    LeadCreate:
+      type: object
+      properties:
+        contact_name: { type: string, minLength: 1, maxLength: 200 }
+        contact_email: { type: string, format: email }
+        organization: { type: string, maxLength: 200 }
+        source: { type: string }
+        service_interest: { type: array, items: { type: string } }
+        industry: { type: string }
+        metadata: { type: object, additionalProperties: true }
+      required: [contact_name, contact_email, source]
+
+    # -- Project --
+    Project:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            tenant_id: { type: string, format: uuid, readOnly: true }
+            lead_id: { type: [string, "null"], format: uuid }
+            name: { type: string }
+            summary: { type: [string, "null"] }
+            status:
+              type: string
+              enum: [draft, active, in_review, launched, maintenance, archived]
+            start_date: { type: [string, "null"], format: date }
+            metadata: { type: object, additionalProperties: true }
+    ProjectCreate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        summary: { type: string, maxLength: 2000 }
+        lead_id: { type: string, format: uuid }
+        start_date: { type: string, format: date }
+      required: [name]
+    ProjectUpdate:
+      type: object
+      description: Partial update (PATCH). All fields optional.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        summary: { type: string, maxLength: 2000 }
+        status: { type: string, enum: [draft, active, in_review, launched, maintenance, archived] }
+        start_date: { type: string, format: date }
+
+    # -- Milestone --
+    Milestone:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            project_id: { type: string, format: uuid, readOnly: true }
+            title: { type: string }
+            status: { type: string, enum: [pending, in_progress, submitted, approved] }
+            due_date: { type: [string, "null"], format: date }
+    MilestoneCreate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        due_date: { type: string, format: date }
+      required: [title]
+
+    # -- Change request --
+    ChangeRequest:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            project_id: { type: string, format: uuid, readOnly: true }
+            title: { type: string }
+            detail: { type: [string, "null"] }
+            status: { type: string, enum: [submitted, in_review, accepted, rejected, done] }
+    ChangeRequestCreate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        detail: { type: string, maxLength: 5000 }
+      required: [title]
+
+    # -- Invoice / Payment --
+    Invoice:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            tenant_id: { type: string, format: uuid, readOnly: true }
+            project_id: { type: string, format: uuid }
+            number: { type: string, readOnly: true }
+            amount: { type: number, minimum: 0 }
+            currency: { type: string, example: INR }
+            status: { type: string, enum: [draft, sent, paid, overdue, void] }
+            due_date: { type: [string, "null"], format: date }
+    PaymentInitiation:
+      type: object
+      description: >
+        Initiates payment. The API returns a hosted-gateway checkout URL; it
+        never accepts card data. The client completes payment on the gateway.
+      properties:
+        return_url: { type: string, format: uri }
+      required: [return_url]
+    CheckoutSession:
+      type: object
+      properties:
+        checkout_url: { type: string, format: uri, description: Redirect the user here to pay on the gateway. }
+        expires_at: { type: string, format: date-time }
+      required: [checkout_url]
+
+    # -- Asset --
+    Asset:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            project_id: { type: string, format: uuid, readOnly: true }
+            filename: { type: string }
+            type: { type: string }
+            status: { type: string, enum: [uploading, ready, quarantined] }
+    AssetUploadRequest:
+      type: object
+      description: Requests a pre-signed URL for direct-to-storage upload.
+      properties:
+        filename: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer, minimum: 1 }
+      required: [filename, content_type, size_bytes]
+    PresignedUpload:
+      type: object
+      properties:
+        asset_id: { type: string, format: uuid }
+        upload_url: { type: string, format: uri, description: Time-limited signed URL; client uploads directly to storage. }
+        expires_at: { type: string, format: date-time }
+      required: [asset_id, upload_url]
+
+    # -- RBAC --
+    User:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            tenant_id: { type: string, format: uuid, readOnly: true }
+            email: { type: string, format: email }
+            status: { type: string, enum: [invited, active, disabled] }
+            role_ids: { type: array, items: { type: string, format: uuid } }
+    Role:
+      allOf:
+        - $ref: '#/components/schemas/AuditFields'
+        - type: object
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            tenant_id: { type: string, format: uuid, readOnly: true }
+            key: { type: string, example: project-manager }
+            name: { type: string }
+            is_system: { type: boolean, readOnly: true }
+            permission_ids: { type: array, items: { type: string, format: uuid } }
+    Permission:
+      type: object
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        key: { type: string, example: "invoice:create" }
+        resource: { type: string, example: invoice }
+        action: { type: string, example: create }
+
+# =============================================================================
+# PATHS — grouped by tag. Every operation reuses the shared components above.
+# =============================================================================
+paths:
+
+  # ---- AUTH (public / token-based; override global security) --------------
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Exchange credentials for a token pair
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate refresh token, issue new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: New token pair.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current session's refresh token
+      responses:
+        '204': { description: Logged out. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/step-up:
+    post:
+      tags: [Auth]
+      summary: Re-authenticate for sensitive actions (billing, permissions)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Step-up granted (short-lived elevation).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  # ---- LEADS --------------------------------------------------------------
+  /leads:
+    get:
+      tags: [Leads]
+      summary: List leads
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/StatusFilter'
+        - $ref: '#/components/parameters/CreatedAfter'
+        - $ref: '#/components/parameters/CreatedBefore'
+      responses:
+        '200':
+          description: A page of leads.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Lead' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Leads]
+      summary: Create a lead (also the public quote-wizard target)
+      security: []
+      description: Unauthenticated creation is rate-limited by IP; authenticated creation requires lead:create.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeadCreate' }
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location: { schema: { type: string }, description: URL of the new lead. }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Lead' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /leads/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Leads]
+      summary: Retrieve a lead
+      responses:
+        '200':
+          description: The lead.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Lead' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Leads]
+      summary: Update a lead (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { status: { type: string, enum: [new, qualified, quoted, converted, lost] } } }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Lead' } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Leads]
+      summary: Soft-delete a lead
+      responses:
+        '204': { description: Soft-deleted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- PROJECTS -----------------------------------------------------------
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/StatusFilter'
+      responses:
+        '200':
+          description: A page of projects.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Project' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectCreate' }
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Project' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /projects/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Projects]
+      summary: Retrieve a project
+      responses:
+        '200':
+          description: The project.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Project' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Projects]
+      summary: Update a project (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Project' } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Projects]
+      summary: Soft-delete a project (cascades soft-delete to children)
+      responses:
+        '204': { description: Soft-deleted. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- MILESTONES (nested under project) ----------------------------------
+  /projects/{projectId}/milestones:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Milestones]
+      summary: List a project's milestones
+      parameters:
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/StatusFilter'
+      responses:
+        '200':
+          description: Milestones.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Milestone' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Milestones]
+      summary: Add a milestone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MilestoneCreate' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Milestone' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ---- CHANGE REQUESTS (nested; user-initiated) ---------------------------
+  /projects/{projectId}/change-requests:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Change Requests]
+      summary: List change requests
+      responses:
+        '200':
+          description: Change requests.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/ChangeRequest' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Change Requests]
+      summary: Submit a change request (user-initiated, confirmed by the client)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangeRequestCreate' }
+      responses:
+        '201':
+          description: Submitted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/ChangeRequest' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ---- BILLING ------------------------------------------------------------
+  /invoices:
+    get:
+      tags: [Billing]
+      summary: List invoices
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/StatusFilter'
+      responses:
+        '200':
+          description: A page of invoices.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Invoice' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /invoices/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Billing]
+      summary: Retrieve an invoice
+      responses:
+        '200':
+          description: The invoice.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Invoice' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /invoices/{id}/payments:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+    post:
+      tags: [Billing]
+      summary: Initiate payment (returns a hosted-gateway checkout URL)
+      description: >
+        Requires a recent step-up. The API never accepts card data; it returns
+        a gateway checkout URL. Payment state updates arrive via signed webhook.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentInitiation' }
+      responses:
+        '200':
+          description: Checkout session created.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/CheckoutSession' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ---- ASSETS -------------------------------------------------------------
+  /projects/{projectId}/assets:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Assets]
+      summary: List a project's assets
+      responses:
+        '200':
+          description: Assets.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Asset' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Assets]
+      summary: Request a pre-signed upload URL (direct-to-storage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssetUploadRequest' }
+      responses:
+        '201':
+          description: Pre-signed URL issued; client uploads directly to storage.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/PresignedUpload' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ---- USERS --------------------------------------------------------------
+  /users:
+    get:
+      tags: [Users]
+      summary: List users (requires user:read)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/StatusFilter'
+      responses:
+        '200':
+          description: A page of users.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/User' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Users]
+      summary: Invite a user (requires user:manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                role_ids: { type: array, items: { type: string, format: uuid } }
+              required: [email]
+      responses:
+        '201':
+          description: Invited.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/User' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    patch:
+      tags: [Users]
+      summary: Update a user (status, roles — requires user:manage + step-up)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [invited, active, disabled] }
+                role_ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/User' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---- ROLES & PERMISSIONS ------------------------------------------------
+  /roles:
+    get:
+      tags: [Roles & Permissions]
+      summary: List roles
+      responses:
+        '200':
+          description: Roles.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Role' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Roles & Permissions]
+      summary: Create a custom role (requires role:manage + step-up)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key: { type: string }
+                name: { type: string }
+                permission_ids: { type: array, items: { type: string, format: uuid } }
+              required: [key, name]
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Role' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /permissions:
+    get:
+      tags: [Roles & Permissions]
+      summary: List the permission catalog (read-only)
+      responses:
+        '200':
+          description: Permissions.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Permission' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
