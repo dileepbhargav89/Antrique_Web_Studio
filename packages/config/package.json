@@ -1,0 +1,13 @@
+{
+  "name": "@antrique/config",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"nothing to build\"",
+    "lint": "echo \"nothing to lint\"",
+    "typecheck": "echo \"no TypeScript in this package\"",
+    "test": "echo \"no tests configured yet\"",
+    "format": "prettier --write \"**/*.{js,cjs,json}\"",
+    "clean": "echo \"nothing to clean\""
+  }
+}

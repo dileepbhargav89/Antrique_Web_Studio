@@ -1,0 +1,16 @@
+{
+  "name": "@antrique/api-contract",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"nothing to build\"",
+    "lint": "node -e \"require('yaml').parse(require('fs').readFileSync('openapi/openapi.yaml','utf8')); console.log('openapi.yaml is valid YAML')\"",
+    "typecheck": "echo \"no TypeScript in this package\"",
+    "test": "echo \"no tests configured yet\"",
+    "format": "prettier --write \"openapi/**/*.yaml\"",
+    "clean": "echo \"nothing to clean\""
+  },
+  "devDependencies": {
+    "yaml": "^2.6.1"
+  }
+}

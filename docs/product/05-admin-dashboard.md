@@ -1,32 +1,24 @@
-# 05 — Admin Dashboard (internal operations console)
+# 03 — Feature & Page Design
 
-The internal delivery/operations surface (distinct from the client portal).
-19 modules in four groups; every module inherits list+detail views, RBAC gating,
-audit logging, soft-delete, status fields, and standard states.
+Every page specified across 15 dimensions: purpose, business goal, components,
+sections, interactions, animations, validation, SEO, accessibility, responsive
+behavior, and four state families (loading, empty, error, success).
 
-## Operations
-- **Dashboard** — "what needs attention today?" (leads, projects, milestones,
-  overdue invoices, contact requests).
-- **Leads** — CRM pipeline board (new→qualified→quoted→converted→lost);
-  convert-to-project bridge.
-- **Clients** — tenant/account records; manage portal access; suspend (step-up).
-- **Projects** — delivery console; milestones, team, assets, change requests.
-- **Contact Requests** — unqualified inbound inbox; convert-to-lead.
-- **Careers** — job postings + applications inbox.
+## Cross-cutting standards (stated once, inherited)
+- Responsive, mobile-first breakpoints; touch targets ≥44px.
+- WCAG 2.1 AA baseline everywhere.
+- Animation purposeful only, reduced-motion-safe, 150–350ms.
+- State defaults: skeletons for loading, human-readable errors with recovery,
+  success with a clear next step; global 404.
+- SEO baseline: unique title/description, one H1, canonical, OG, schema.
 
-## Content (CMS, draft→publish + ISR revalidate)
-Services, Pricing, Blogs, Media (alt text required), Testimonials (verified flag),
-FAQs.
+## Quote wizard (primary conversion)
+One question per screen, visible progress, pre-fill from referring page,
+controlled inputs, contact captured last, trust rail throughout. Per-step inline
+validation never loses data. **User-initiated, never auto-submitted.** Failure
+preserves inputs + offers retry.
 
-## Growth
-Newsletter (consent-first, export to ESP), SEO (metadata, redirects, sitemap),
-Analytics (quote funnel, CWV, recurring-revenue mix).
-
-## System
-Settings (secrets never shown in plaintext), Permissions (RBAC admin, step-up +
-audit), Audit Logs (read-only, immutable), Notifications (internal alerts).
-
-## Notes
-Sidebar nav (not mega menu). RBAC visible-and-enforced: inaccessible modules
-don't render, but server enforces regardless. Content and operations modules each
-reuse one shared pattern.
+## Templated pages
+Service Detail (×15) and Industry Detail (×10) each specified once; instances
+differ in content, not design. State design overridden only where a page
+genuinely differs.

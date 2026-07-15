@@ -1,0 +1,21 @@
+# Auto-loaded alongside docker-compose.yml by `docker compose up`. Switches
+# api/web to their `dev` build stage (framework watch mode) and mounts source
+# for hot-reload. Excluded from CI/prod — this file is dev-only convenience.
+
+services:
+  api:
+    build:
+      target: dev
+    volumes:
+      - ./apps/api/src:/repo/apps/api/src
+      - ./apps/api/tests:/repo/apps/api/tests
+      - ./packages:/repo/packages
+    command: pnpm --filter @antrique/api dev
+
+  web:
+    build:
+      target: dev
+    volumes:
+      - ./apps/web/src:/repo/apps/web/src
+      - ./packages:/repo/packages
+    command: pnpm --filter @antrique/web dev

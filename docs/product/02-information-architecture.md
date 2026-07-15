@@ -1,29 +1,46 @@
-# 02 — Information Architecture
+# 07 — Implementation Roadmap
 
-## Two-surface architecture
-Public marketing site (SSG/ISR, SEO, unauthenticated) + authenticated client
-portal — distinct navigation, footers, and code. Never cross-import.
+Conversion spine first, portal second. Complexity in T-shirt sizes (S/M/L/XL).
+Cross-cutting quality (test, a11y, security, observability, docs) runs through
+EVERY sprint — not a final phase.
 
-## Templating decision
-15 services and 10 industries render through **two reusable templates**, not
-~165 bespoke pages. This is what makes the breadth maintainable.
+## Sprint 1 — Foundation
+Scaffold+tooling (S), DB schema+migrations+RLS (L), Auth/IdP/JWT (L), RBAC (M),
+CI/CD (M), infra baseline (L), shared types+OpenAPI skeleton (M).
+**Milestone:** foundation ready — auth works, DB enforces tenant isolation,
+deploys to staging.
 
-## Sitemap (public)
-Home / Services (4 clusters) / Industries (10) / Work / About / Pricing /
-Resources (Blog, Guides, FAQ) / Contact / Quote / legal+utility.
-Portal: Dashboard / Projects / Billing / Support / Documents / Settings.
-No public page more than 3 clicks from Home.
+## Sprint 2 — Marketing site
+Design system→code (L), layout (M), Home (M), Service template ×15 (L),
+Industry template ×10 (M), Work gallery (M), content model (M), SEO layer (M).
+**Milestone:** marketing site live, indexable, hits CWV budget.
 
-## Navigation
-- Sticky header: logo, primary nav, utility (search, login), persistent
-  **Get a Quote** CTA.
-- Mega menu: Services in 4 clusters (Web Dev, Commerce & Platforms, Specialized
-  Sites, Growth & Support); Industries across 10 verticals.
-- Breadcrumbs with schema.org BreadcrumbList on all but Home/hubs.
-- Fat footer (4 cols) + CTA band + legal bar.
-- Portal: left sidebar, minimal chrome (no mega menu/marketing footer).
+## Sprint 3 — Conversion + CRM
+Quote wizard (L), lead capture (M), contact form (S), confirmation+email (M),
+pricing (S), CRM pipeline (M), transactional email (M).
+**◆ M1: Public funnel live — the business can generate leads.**
 
-## CTA strategy (layered)
-Primary (Get a Quote — persistent), Secondary (Book a Consultation), Tertiary
-(View Work / Download Guide), Micro (newsletter/chat). Every page ends in exactly
-one primary CTA — no dead ends.
+## Sprint 4 — Portal core
+Portal shell (M), dashboard home (M), project tracking+timeline (L), milestone
+review loop (M), documents (M), timeline feed (M), profile+settings (S).
+**Milestone:** portal core usable — status visibility delivered.
+
+## Sprint 5 — Billing + collaboration
+Invoices (M), payments+webhooks (L — highest risk, buffered), recurring billing
+(M), tickets (M), messages (M), meetings (M, Could), notifications (M).
+**◆ M2: Portal live — recurring-revenue loop closed.**
+
+## Sprint 6 — Admin + hardening
+Admin ops console (L), content modules (L), permissions+audit admin (M),
+analytics/SEO admin (M), security hardening (L), performance pass (M),
+observability+DR drill (M), production launch (M).
+**◆ M3: Production launch — hardened, monitored, DR-tested.**
+
+## Prioritization (MoSCoW)
+Must = critical path to a milestone. Should = survives a short slip. Could =
+deferrable. Under pressure: Coulds drop first, Shoulds slip; Musts never drop.
+
+## Dependency spine
+Auth+DB+RBAC block everything → S1. Design system blocks all UI. Templates block
+the 25 content pages. Projects data blocks billing+collab. Payments depends on the
+external gateway (buffered). Admin depends on S3–S5 data models.

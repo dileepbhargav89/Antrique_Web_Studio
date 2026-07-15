@@ -1,0 +1,6 @@
+module.exports = {
+  root: true,
+  extends: ['eslint:recommended'],
+  env: { node: true, es2022: true },
+  ignorePatterns: ['apps', 'packages', 'node_modules', '.turbo'],
+};

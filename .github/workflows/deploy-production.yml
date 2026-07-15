@@ -1,0 +1,45 @@
+name: Deploy - Production
+
+# Manual-only until real hosting infrastructure exists. Terraform/k8s are still
+# empty scaffolds (see infrastructure/terraform/README.md and
+# docs/architecture/architecture.md "Hosting/CDN"). This workflow verifies the
+# build is deployable and stops short of an actual deploy so it never gives a
+# false-green signal about infra that doesn't exist yet. Once real, gate this
+# behind required reviewers on the "production" GitHub Environment.
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build (deploy step pending infrastructure)
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Deploy
+        run: |
+          echo "No production hosting target is provisioned yet."
+          echo "Fill in this step once infrastructure/terraform provisions a target."
+          exit 1

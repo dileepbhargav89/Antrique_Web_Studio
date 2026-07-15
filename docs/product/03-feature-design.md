@@ -1,24 +1,45 @@
-# 03 — Feature & Page Design
+# 01 — Product Discovery
 
-Every page specified across 15 dimensions: purpose, business goal, components,
-sections, interactions, animations, validation, SEO, accessibility, responsive
-behavior, and four state families (loading, empty, error, success).
+## Vision
+Become the most trusted end-to-end web development partner for organizations
+across sectors — **platform-led, not project-led**. The differentiator is making
+commissioning and maintaining web software predictable, observable, and low-risk
+for non-technical buyers.
 
-## Cross-cutting standards (stated once, inherited)
-- Responsive, mobile-first breakpoints; touch targets ≥44px.
-- WCAG 2.1 AA baseline everywhere.
-- Animation purposeful only, reduced-motion-safe, 150–350ms.
-- State defaults: skeletons for loading, human-readable errors with recovery,
-  success with a clear next step; global 404.
-- SEO baseline: unique title/description, one H1, canonical, OG, schema.
+## Mission
+Deliver secure, scalable, accessible web solutions by combining a productized
+delivery engine (reusable components, templates, automation) with expert human
+oversight, lowering time-to-launch and total cost of ownership.
 
-## Quote wizard (primary conversion)
-One question per screen, visible progress, pre-fill from referring page,
-controlled inputs, contact captured last, trust rail throughout. Per-step inline
-validation never loses data. **User-initiated, never auto-submitted.** Failure
-preserves inputs + offers retry.
+## Business goals (indicative, to validate)
+| Horizon | Goal | Metric |
+|---|---|---|
+| 0–6mo | Market presence & pipeline | 50+ qualified leads/month; portal MVP |
+| 6–12mo | Recurring revenue | 30% revenue from maintenance/SEO retainers |
+| 12–24mo | Productization | Self-serve tier contributing revenue |
 
-## Templated pages
-Service Detail (×15) and Industry Detail (×10) each specified once; instances
-differ in content, not design. State design overridden only where a page
-genuinely differs.
+**North-star:** recurring-revenue mix (not project count). Recurring revenue is
+the enterprise-value driver.
+
+## Personas
+Client-side: School Admin, SME Owner, Startup Founder, Govt Procurement, Hospital
+IT, Enterprise Marketing Lead. Internal: PM, Developer/Designer, Sales, Admin.
+The internal-operator experience is where agency margin is won or lost.
+
+## Customer journey
+Awareness → Consideration → Onboarding → Delivery → Launch → Retention.
+Two make-or-break moments: **onboarding (requirement chaos)** and the **delivery
+silence gap**. Dissatisfaction is about *visibility*, not quality — transparency
+is the core value proposition.
+
+## Competitors
+DIY builders (cheap, no custom/hand-holding), freelance marketplaces (variance,
+no accountability), local agencies (no transparency/process/recurring model),
+enterprise vendors (expensive, overkill). Wedge: platform-driven visibility +
+productization.
+
+## Risks
+- **R1 (top): over-broad scope** — 15 services × 11 verticals dilutes brand and
+  delivery. Mitigation: beachhead vertical first, phase the rest.
+- R2 compliance failure (gov/health/accessibility). R3 delivery-ops chaos.
+  R4 lumpy one-off revenue. R7 multi-tenant breach.

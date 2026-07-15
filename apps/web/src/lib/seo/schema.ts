@@ -7,13 +7,13 @@
  * Specification-level: signatures + the exact schema shape, no rendering.
  */
 
-import { SITE } from "./seo.config";
+import { SITE } from './seo.config';
 
 /** Home — Organization + WebSite (sitelinks search box). */
 export function organizationSchema() {
   return {
-    "@context": "https://schema.org",
-    "@type": "Organization",
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
     name: SITE.name,
     url: SITE.domain,
     logo: `${SITE.domain}/logo.png`,
@@ -23,60 +23,67 @@ export function organizationSchema() {
 
 export function websiteSchema() {
   return {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
     url: SITE.domain,
     name: SITE.name,
     potentialAction: {
-      "@type": "SearchAction",
+      '@type': 'SearchAction',
       target: `${SITE.domain}/search?q={query}`,
-      "query-input": "required name=query",
+      'query-input': 'required name=query',
     },
   };
 }
 
 /** Service detail — Service. Pair with faqSchema() for its FAQ block. */
-export function serviceSchema(input: {
-  name: string; description: string; url: string;
-}) {
+export function serviceSchema(input: { name: string; description: string; url: string }) {
   return {
-    "@context": "https://schema.org",
-    "@type": "Service",
+    '@context': 'https://schema.org',
+    '@type': 'Service',
     name: input.name,
     description: input.description,
     url: input.url,
-    provider: { "@type": "Organization", name: SITE.name },
-    areaServed: "IN",
+    provider: { '@type': 'Organization', name: SITE.name },
+    areaServed: 'IN',
   };
 }
 
 /** FAQ block (service / industry / pricing) — wins expanded SERP real estate. */
 export function faqSchema(items: { question: string; answer: string }[]) {
   return {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
     mainEntity: items.map((f) => ({
-      "@type": "Question",
+      '@type': 'Question',
       name: f.question,
-      acceptedAnswer: { "@type": "Answer", text: f.answer },
+      acceptedAnswer: { '@type': 'Answer', text: f.answer },
     })),
   };
 }
 
 /** Blog post — BlogPosting (author + dates). */
 export function blogPostingSchema(input: {
-  title: string; description: string; url: string; image: string;
-  author: string; publishedTime: string; modifiedTime: string;
+  title: string;
+  description: string;
+  url: string;
+  image: string;
+  author: string;
+  publishedTime: string;
+  modifiedTime: string;
 }) {
   return {
-    "@context": "https://schema.org",
-    "@type": "BlogPosting",
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
     headline: input.title,
     description: input.description,
     image: input.image,
     url: input.url,
-    author: { "@type": "Person", name: input.author },
-    publisher: { "@type": "Organization", name: SITE.name, logo: { "@type": "ImageObject", url: `${SITE.domain}/logo.png` } },
+    author: { '@type': 'Person', name: input.author },
+    publisher: {
+      '@type': 'Organization',
+      name: SITE.name,
+      logo: { '@type': 'ImageObject', url: `${SITE.domain}/logo.png` },
+    },
     datePublished: input.publishedTime,
     dateModified: input.modifiedTime,
   };
@@ -84,32 +91,39 @@ export function blogPostingSchema(input: {
 
 /** Case study — CreativeWork. */
 export function caseStudySchema(input: {
-  name: string; description: string; url: string; image: string;
+  name: string;
+  description: string;
+  url: string;
+  image: string;
 }) {
   return {
-    "@context": "https://schema.org",
-    "@type": "CreativeWork",
+    '@context': 'https://schema.org',
+    '@type': 'CreativeWork',
     name: input.name,
     description: input.description,
     url: input.url,
     image: input.image,
-    creator: { "@type": "Organization", name: SITE.name },
+    creator: { '@type': 'Organization', name: SITE.name },
   };
 }
 
 /** Contact — LocalBusiness (consistent NAP for local SEO). */
 export function localBusinessSchema(input: {
-  phone: string; street: string; city: string; region: string;
-  postalCode: string; country: string;
+  phone: string;
+  street: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: string;
 }) {
   return {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',
     name: SITE.name,
     url: SITE.domain,
     telephone: input.phone,
     address: {
-      "@type": "PostalAddress",
+      '@type': 'PostalAddress',
       streetAddress: input.street,
       addressLocality: input.city,
       addressRegion: input.region,
@@ -122,10 +136,10 @@ export function localBusinessSchema(input: {
 /** Breadcrumbs — on every page except Home and top-level hubs. */
 export function breadcrumbSchema(trail: { name: string; url: string }[]) {
   return {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
     itemListElement: trail.map((c, i) => ({
-      "@type": "ListItem",
+      '@type': 'ListItem',
       position: i + 1,
       name: c.name,
       item: c.url,
@@ -138,11 +152,11 @@ export function breadcrumbSchema(trail: { name: string; url: string }[]) {
  * (Reference table; enforced in the route metadata layer.)
  */
 export const SCHEMA_BY_PAGE = {
-  home:        ["organizationSchema", "websiteSchema"],
-  service:     ["serviceSchema", "faqSchema", "breadcrumbSchema"],
-  industry:    ["serviceSchema", "faqSchema", "breadcrumbSchema"],
-  caseStudy:   ["caseStudySchema", "breadcrumbSchema"],
-  blogPost:    ["blogPostingSchema", "breadcrumbSchema"],
-  pricing:     ["faqSchema", "breadcrumbSchema"],
-  contact:     ["localBusinessSchema", "breadcrumbSchema"],
+  home: ['organizationSchema', 'websiteSchema'],
+  service: ['serviceSchema', 'faqSchema', 'breadcrumbSchema'],
+  industry: ['serviceSchema', 'faqSchema', 'breadcrumbSchema'],
+  caseStudy: ['caseStudySchema', 'breadcrumbSchema'],
+  blogPost: ['blogPostingSchema', 'breadcrumbSchema'],
+  pricing: ['faqSchema', 'breadcrumbSchema'],
+  contact: ['localBusinessSchema', 'breadcrumbSchema'],
 } as const;
