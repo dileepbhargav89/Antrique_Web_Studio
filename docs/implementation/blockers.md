@@ -27,6 +27,19 @@ Format:
   (see decisions.md, 2026-07-15) and could not be recovered.
 - **Owner:** you
 
+## 🟡 docs/product/*.md have the same swapped-content bug as docs/implementation did (opened 2026-07-16)
+- **Blocks:** trusting docs/product/ filenames at face value; not currently
+  blocking any in-progress task.
+- **Needs:** the same remap treatment applied to docs/implementation on
+  2026-07-15. Found while researching Sprint 1 schema work: every file in
+  docs/product/ contains a *different* doc's content than its filename
+  claims, e.g. `06-client-dashboard.md` actually holds "02 — Information
+  Architecture." Worse than the implementation/ case: the real "04 — UX" doc
+  appears genuinely lost (overwritten by a second copy of "01 — Product
+  Discovery," not just misplaced) — 5 of 6 mislabeled files are recoverable
+  by remapping, "04 — UX" is not.
+- **Owner:** you
+
 ## Resolved
 - **docs/implementation files had swapped contents** (opened 2026-07-15, resolved same day)
   — every file in docs/implementation/ contained another file's content

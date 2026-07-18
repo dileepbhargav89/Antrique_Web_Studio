@@ -1,0 +1,1044 @@
+// Antrique Web Studio — Prisma schema (Phase 1.1A: architecture only)
+//
+// Scope of this file: models, relationships, enums, indexes, constraints.
+// NOT in scope (see docs/architecture/database-schema.md for the full list of
+// deferred items): migrations, seed data, a wired-up PrismaClient, RLS policy
+// SQL, partial/filtered unique indexes, and CHECK constraints — Prisma's
+// schema DSL cannot express the last three; they land as raw SQL in the first
+// migration (Phase 1.1B).
+//
+// Conventions (applied uniformly — see database-schema.md "Design rationale"
+// for the reasoning behind each):
+//   - id            String  @id @default(uuid(7)) @db.Uuid  — client-generated UUIDv7
+//     (time-ordered, not v4/random — keeps B-tree PK indexes append-mostly
+//     instead of randomly fragmenting on every insert; matters most on the
+//     high-write tables: audit_logs, activity_logs, notifications, payments)
+//   - tenant_id      on every table except `permissions` (the one global, non
+//     tenant-scoped catalog) — the multi-tenancy spine, always indexed first.
+//   - Audit block:  created_at, updated_at, created_by, updated_by, version
+//     — on every general business entity. created_by/updated_by are bare
+//     uuid columns with NO Prisma relation (avoids a dozen+ redundant
+//     back-relations on User for what is metadata, not a business
+//     relationship); version is an application-managed optimistic-lock
+//     counter (Prisma does not auto-increment it).
+//   - Soft delete:  deleted_at, deleted_by — on every general business
+//     entity EXCEPT audit_logs, activity_logs, and payments (append-only per
+//     docs/architecture/database.md) and pure join tables (hard-delete).
+//   - Status is always a constrained enum, never a boolean, EXCEPT genuinely
+//     binary flags (is_verified, is_system) called out explicitly in the
+//     product docs as flags rather than lifecycles.
+//   - snake_case in the database (CONTRIBUTING.md §1), camelCase in Prisma —
+//     bridged with @map / @@map throughout.
+//   - Referential actions (onDelete, on every FK — Phase 1.1A review addition):
+//     Restrict on every relation to Tenant (never let an FK cascade a tenant
+//     hard-delete) and on every other required relation to a real business
+//     parent (forces the app-layer soft-delete pattern instead of orphaning
+//     rows on a hard delete); SetNull on optional (nullable) FKs, generalizing
+//     database.md's explicit "lead→project set-null"; Cascade only for rows
+//     with zero standalone meaning once their one owner is gone — pure
+//     join-table rows (UserRole, RolePermission, ProjectMember), Session (an
+//     ephemeral auth artifact, not a business record), and quote/invoice line
+//     items. See database-schema.md §3 for the full per-relation table.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// TENANCY & ACCESS CONTROL
+// =============================================================================
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CHURNED
+}
+
+/// The multi-tenancy isolation boundary. Every other table (except
+/// `permissions`) carries a tenant_id back to this table; RLS policies
+/// (Phase 1.1B) key off it exclusively.
+model Tenant {
+  id     String       @id @default(uuid(7)) @db.Uuid
+  name   String
+  slug   String       @unique
+  status TenantStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  users           User[]
+  roles           Role[]
+  sessions        Session[]
+  clients         Client[]
+  leads           Lead[]
+  contactRequests ContactRequest[]
+  projects        Project[]
+  projectMembers  ProjectMember[]
+  milestones      Milestone[]
+  tasks           Task[]
+  documents       Document[]
+  quotations      Quotation[]
+  quotationItems  QuotationItem[]
+  invoices        Invoice[]
+  invoiceItems    InvoiceItem[]
+  payments        Payment[]
+  media           Media[]
+  blogs           Blog[]
+  testimonials    Testimonial[]
+  notifications   Notification[]
+  activityLogs    ActivityLog[]
+  auditLogs       AuditLog[]
+  settings        Setting[]
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("tenants")
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+/// Portal + admin accounts. `client_id` is null for internal Antrique staff
+/// and set for a Client-side portal user. Auth itself (credential exchange,
+/// MFA, SSO) lives with the managed IdP per docs/architecture/security.md —
+/// `idp_subject` is the linkage key back to that external identity.
+model User {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  tenantId   String     @map("tenant_id") @db.Uuid
+  clientId   String?    @map("client_id") @db.Uuid
+  idpSubject String     @unique @map("idp_subject")
+  email      String
+  firstName  String?    @map("first_name")
+  lastName   String?    @map("last_name")
+  status     UserStatus @default(INVITED)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  userRoles          UserRole[]
+  sessions           Session[]
+  projectMemberships ProjectMember[]
+  assignedTasks      Task[]          @relation("TaskAssignee")
+  uploadedDocuments  Document[]      @relation("DocumentUploadedBy")
+  uploadedMedia      Media[]         @relation("MediaUploadedBy")
+  authoredBlogs      Blog[]          @relation("BlogAuthor")
+  assignedLeads      Lead[]          @relation("LeadAssignee")
+  preparedQuotations Quotation[]     @relation("QuotationPreparedBy")
+  notifications      Notification[]
+  activityLogEntries ActivityLog[]   @relation("ActivityLogActor")
+  auditLogEntries    AuditLog[]      @relation("AuditLogActor")
+
+  // NOTE (Phase 1.1B): replace with a PARTIAL unique index —
+  //   CREATE UNIQUE INDEX ON users (tenant_id, email) WHERE deleted_at IS NULL;
+  // — Prisma's schema DSL cannot express filtered indexes; this @@unique is a
+  // stand-in so the constraint isn't silently missing, but it will incorrectly
+  // block email reuse after a soft-deleted user. See database-schema.md.
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([clientId])
+  @@map("users")
+}
+
+/// Per-tenant role. `is_system` marks the seeded default roles (Admin, PM,
+/// etc. — seeded in the RBAC-model task, not here) as non-editable/non-
+/// deletable by tenant admins.
+model Role {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  key         String
+  name        String
+  description String?
+  isSystem    Boolean @default(false) @map("is_system")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  // NOTE (Phase 1.1B): partial unique WHERE deleted_at IS NULL — see User note above.
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+/// Global permission catalog (`resource:action`), NOT tenant-scoped — every
+/// tenant's roles draw from the same shared catalog. Seeded via migration,
+/// not user-editable (no update path in the API contract).
+model Permission {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  key         String  @unique
+  resource    String
+  action      String
+  description String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@index([resource, action])
+  @@map("permissions")
+}
+
+/// user ↔ role. Pure join table — hard-delete, no soft-delete/version
+/// (docs/architecture/database.md "join tables hard-delete").
+model UserRole {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  assignedBy String?  @map("assigned_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([tenantId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+/// role ↔ permission. Pure join table — hard-delete, no soft-delete/version.
+model RolePermission {
+  tenantId     String @map("tenant_id") @db.Uuid
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([tenantId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// This app's own refresh-token session, issued after the managed-IdP
+/// exchange (see security.md "short sessions... rotating refresh, reuse
+/// detection"). `replaced_by_session_id` chains rotations: presenting a
+/// token whose session is already revoked-and-replaced is a reuse/theft
+/// signal the app layer checks against.
+model Session {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  refreshTokenHash    String    @unique @map("refresh_token_hash")
+  userAgent           String?   @map("user_agent")
+  ipAddress           String?   @map("ip_address")
+  issuedAt            DateTime  @default(now()) @map("issued_at")
+  expiresAt           DateTime  @map("expires_at")
+  lastUsedAt          DateTime? @map("last_used_at")
+  revokedAt           DateTime? @map("revoked_at")
+  replacedBySessionId String?   @map("replaced_by_session_id") @db.Uuid
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  version             Int       @default(1)
+
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBySession Session?  @relation("SessionRotation", fields: [replacedBySessionId], references: [id], onDelete: SetNull)
+  rotatedFrom       Session[] @relation("SessionRotation")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([replacedBySessionId])
+  @@map("sessions")
+}
+
+// =============================================================================
+// CRM
+// =============================================================================
+
+enum ContactRequestStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  SPAM
+  CLOSED
+}
+
+/// Unqualified inbound inbox (public contact form) — lighter-weight than a
+/// Lead; converts into one via `converted_lead_id`.
+model ContactRequest {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  tenantId        String               @map("tenant_id") @db.Uuid
+  name            String
+  email           String
+  phone           String?
+  message         String
+  source          String?
+  status          ContactRequestStatus @default(NEW)
+  convertedLeadId String?              @map("converted_lead_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  convertedLead Lead?  @relation(fields: [convertedLeadId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([convertedLeadId])
+  @@map("contact_requests")
+}
+
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  QUOTED
+  CONVERTED
+  LOST
+}
+
+/// CRM pipeline record. Field shape matches the authoritative OpenAPI `Lead`
+/// schema (packages/api-contract/openapi/openapi.yaml) exactly.
+model Lead {
+  id                String     @id @default(uuid(7)) @db.Uuid
+  tenantId          String     @map("tenant_id") @db.Uuid
+  contactName       String     @map("contact_name")
+  contactEmail      String     @map("contact_email")
+  organization      String?
+  source            String
+  serviceInterest   String[]   @map("service_interest")
+  industry          String?
+  status            LeadStatus @default(NEW)
+  assigneeId        String?    @map("assignee_id") @db.Uuid
+  convertedClientId String?    @map("converted_client_id") @db.Uuid
+  metadata          Json?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  assignee        User?            @relation("LeadAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  convertedClient Client?          @relation(fields: [convertedClientId], references: [id], onDelete: SetNull)
+  contactRequests ContactRequest[]
+  projects        Project[]
+  quotations      Quotation[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([assigneeId])
+  @@index([convertedClientId])
+  @@map("leads")
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// The agency's customer organization — what a converted Lead becomes, and
+/// what Projects/Quotations/Invoices/Testimonials attach to. Distinct from
+/// `Tenant`: Tenant is the platform's isolation boundary (one Antrique
+/// instance); Client is one of *that tenant's own* customers.
+model Client {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  name         String
+  industry     String?
+  website      String?
+  primaryEmail String?      @map("primary_email")
+  primaryPhone String?      @map("primary_phone")
+  status       ClientStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  users        User[]
+  leadsWon     Lead[]
+  projects     Project[]
+  quotations   Quotation[]
+  invoices     Invoice[]
+  testimonials Testimonial[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("clients")
+}
+
+// =============================================================================
+// DELIVERY
+// =============================================================================
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  IN_REVIEW
+  LAUNCHED
+  MAINTENANCE
+  ARCHIVED
+}
+
+/// Field shape matches the authoritative OpenAPI `Project` schema.
+model Project {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  tenantId  String        @map("tenant_id") @db.Uuid
+  clientId  String        @map("client_id") @db.Uuid
+  leadId    String?       @map("lead_id") @db.Uuid
+  name      String
+  summary   String?
+  status    ProjectStatus @default(DRAFT)
+  startDate DateTime?     @map("start_date") @db.Date
+  metadata  Json?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  client       Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  lead         Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  members      ProjectMember[]
+  milestones   Milestone[]
+  tasks        Task[]
+  documents    Document[]
+  invoices     Invoice[]
+  activityLogs ActivityLog[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([clientId])
+  @@index([leadId])
+  @@map("projects")
+}
+
+enum ProjectMemberRole {
+  OWNER
+  MANAGER
+  CONTRIBUTOR
+  VIEWER
+}
+
+/// project ↔ user, with the member's role on that specific project. Pure
+/// join table — hard-delete (removing someone from a project doesn't need a
+/// tombstone; their historical task/document rows keep their own audit trail).
+model ProjectMember {
+  tenantId  String            @map("tenant_id") @db.Uuid
+  projectId String            @map("project_id") @db.Uuid
+  userId    String            @map("user_id") @db.Uuid
+  role      ProjectMemberRole @default(CONTRIBUTOR)
+  addedAt   DateTime          @default(now()) @map("added_at")
+  addedBy   String?           @map("added_by") @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+  CHANGES_REQUESTED
+  APPROVED
+}
+
+/// Client-visible progress checkpoint. Status set matches the OpenAPI
+/// `Milestone` schema plus CHANGES_REQUESTED (the client-portal review-loop
+/// outcome described in docs/product's client-dashboard content, absent from
+/// the v1 API enum — flagged for an OpenAPI update in Phase 1.1B/Sprint 4).
+model Milestone {
+  id          String          @id @default(uuid(7)) @db.Uuid
+  tenantId    String          @map("tenant_id") @db.Uuid
+  projectId   String          @map("project_id") @db.Uuid
+  title       String
+  description String?
+  status      MilestoneStatus @default(PENDING)
+  dueDate     DateTime?       @map("due_date") @db.Date
+  completedAt DateTime?       @map("completed_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tasks   Task[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
+  @@index([projectId])
+  @@map("milestones")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  BLOCKED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+/// Internal work-item granularity below Milestone. Not exposed in the v1
+/// OpenAPI contract yet (internal delivery-team tool, not client-facing) —
+/// add `/projects/{id}/tasks` when the delivery-console UI needs it.
+model Task {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  tenantId    String       @map("tenant_id") @db.Uuid
+  projectId   String       @map("project_id") @db.Uuid
+  milestoneId String?      @map("milestone_id") @db.Uuid
+  assigneeId  String?      @map("assignee_id") @db.Uuid
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?    @map("due_date") @db.Date
+  completedAt DateTime?    @map("completed_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  milestone Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  assignee  User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
+  @@index([projectId])
+  @@index([milestoneId])
+  @@index([assigneeId])
+  @@index([assigneeId, status])
+  @@map("tasks")
+}
+
+enum DocumentStatus {
+  UPLOADING
+  READY
+  QUARANTINED
+  FAILED
+}
+
+/// Project-scoped file (handover docs, shared files). Field shape matches
+/// the OpenAPI `Asset` schema — renamed `Document` here per this task's
+/// model list; distinct from `Media` (CMS content images), which has an
+/// independent lifecycle not tied to any project.
+model Document {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  projectId    String         @map("project_id") @db.Uuid
+  uploadedById String?        @map("uploaded_by_id") @db.Uuid
+  filename     String
+  mimeType     String         @map("mime_type")
+  sizeBytes    BigInt         @map("size_bytes")
+  storageKey   String         @map("storage_key")
+  status       DocumentStatus @default(UPLOADING)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant     Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  uploadedBy User?   @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([projectId])
+  @@index([uploadedById])
+  @@map("documents")
+}
+
+// =============================================================================
+// COMMERCE
+// =============================================================================
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+/// Quote-wizard output. `lead_id`/`client_id` are both nullable but exactly
+/// one should be set (a fresh prospect quote vs. a repeat-business quote for
+/// an existing client) — enforced at the application layer; Prisma's schema
+/// DSL has no cross-column CHECK support (see database-schema.md).
+model Quotation {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  leadId          String?         @map("lead_id") @db.Uuid
+  clientId        String?         @map("client_id") @db.Uuid
+  preparedById    String?         @map("prepared_by_id") @db.Uuid
+  quotationNumber String          @map("quotation_number")
+  currency        String          @default("INR") @db.VarChar(3)
+  subtotalAmount  Decimal         @map("subtotal_amount") @db.Decimal(12, 2)
+  taxAmount       Decimal         @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount  Decimal         @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  totalAmount     Decimal         @map("total_amount") @db.Decimal(12, 2)
+  status          QuotationStatus @default(DRAFT)
+  validUntil      DateTime?       @map("valid_until") @db.Date
+  issuedAt        DateTime?       @map("issued_at")
+  notes           String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  lead       Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  client     Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  preparedBy User?           @relation("QuotationPreparedBy", fields: [preparedById], references: [id], onDelete: SetNull)
+  items      QuotationItem[]
+  invoices   Invoice[]
+
+  // NOTE (Phase 1.1B): partial unique WHERE deleted_at IS NULL — see User note above.
+  @@unique([tenantId, quotationNumber])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([leadId])
+  @@index([clientId])
+  @@index([preparedById])
+  @@map("quotations")
+}
+
+/// Line item, snapshotted at quote time (amount is stored, not recomputed
+/// from a live price list — unit prices can change after the quote ships).
+model QuotationItem {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  quotationId String  @map("quotation_id") @db.Uuid
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  amount      Decimal @db.Decimal(12, 2)
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([quotationId])
+  @@map("quotation_items")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  VOID
+}
+
+/// Field shape matches the authoritative OpenAPI `Invoice` schema (plus
+/// normalized line items and a lineage link back to the originating
+/// Quotation — see database-schema.md for why line items were added beyond
+/// the literal model list). `amountPaid` is a denormalized running total
+/// maintained by the application whenever a `Payment` succeeds — added so
+/// "partially paid" is representable without summing Payment rows on every
+/// read; deliberately NOT a new InvoiceStatus value, since the status enum
+/// mirrors the authoritative OpenAPI contract and shouldn't diverge from it
+/// without a corresponding API change (see database-schema.md, Phase 1.1A review).
+model Invoice {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  clientId       String        @map("client_id") @db.Uuid
+  projectId      String?       @map("project_id") @db.Uuid
+  quotationId    String?       @map("quotation_id") @db.Uuid
+  invoiceNumber  String        @map("invoice_number")
+  currency       String        @default("INR") @db.VarChar(3)
+  subtotalAmount Decimal       @map("subtotal_amount") @db.Decimal(12, 2)
+  taxAmount      Decimal       @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount Decimal       @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  totalAmount    Decimal       @map("total_amount") @db.Decimal(12, 2)
+  amountPaid     Decimal       @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  status         InvoiceStatus @default(DRAFT)
+  issuedDate     DateTime?     @map("issued_date") @db.Date
+  dueDate        DateTime?     @map("due_date") @db.Date
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  client    Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  quotation Quotation?    @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  items     InvoiceItem[]
+  payments  Payment[]
+
+  // NOTE (Phase 1.1B): partial unique WHERE deleted_at IS NULL — see User note above.
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, dueDate])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([quotationId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  invoiceId   String  @map("invoice_id") @db.Uuid
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  amount      Decimal @db.Decimal(12, 2)
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+/// Append-only: one row per gateway webhook event, never updated in place
+/// (docs/architecture/database.md — payment is exempt from soft-delete and
+/// the audit/version mixin, same as audit_logs). The API never accepts card
+/// data; this table only ever holds a hosted-gateway reference.
+model Payment {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  tenantId    String        @map("tenant_id") @db.Uuid
+  invoiceId   String        @map("invoice_id") @db.Uuid
+  provider    String
+  providerRef String        @map("provider_ref")
+  amount      Decimal       @db.Decimal(12, 2)
+  currency    String        @default("INR") @db.VarChar(3)
+  status      PaymentStatus
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, providerRef])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// =============================================================================
+// CONTENT / CMS
+// =============================================================================
+
+/// CMS media library — independent lifecycle from project `Document`s.
+/// `alt_text` is required per docs/product's admin-dashboard content
+/// ("Media (alt text required)").
+model Media {
+  id           String  @id @default(uuid(7)) @db.Uuid
+  tenantId     String  @map("tenant_id") @db.Uuid
+  uploadedById String? @map("uploaded_by_id") @db.Uuid
+  filename     String
+  altText      String  @map("alt_text")
+  mimeType     String  @map("mime_type")
+  sizeBytes    BigInt  @map("size_bytes")
+  storageKey   String  @map("storage_key")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  uploadedBy User?  @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  blogs      Blog[]
+
+  @@index([tenantId])
+  @@index([uploadedById])
+  @@map("media")
+}
+
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Blog {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  tenantId        String     @map("tenant_id") @db.Uuid
+  authorId        String?    @map("author_id") @db.Uuid
+  coverMediaId    String?    @map("cover_media_id") @db.Uuid
+  title           String
+  slug            String
+  excerpt         String?
+  content         String     @db.Text
+  status          BlogStatus @default(DRAFT)
+  publishedAt     DateTime?  @map("published_at")
+  metaTitle       String?    @map("meta_title")
+  metaDescription String?    @map("meta_description")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  author     User?  @relation("BlogAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  coverMedia Media? @relation(fields: [coverMediaId], references: [id], onDelete: SetNull)
+
+  // NOTE (Phase 1.1B): partial unique WHERE deleted_at IS NULL — see User note above.
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([authorId])
+  @@index([coverMediaId])
+  @@map("blogs")
+}
+
+enum TestimonialStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Testimonial {
+  id         String            @id @default(uuid(7)) @db.Uuid
+  tenantId   String            @map("tenant_id") @db.Uuid
+  clientId   String?           @map("client_id") @db.Uuid
+  authorName String            @map("author_name")
+  authorRole String?           @map("author_role")
+  quote      String            @db.Text
+  rating     Int?
+  isVerified Boolean           @default(false) @map("is_verified")
+  status     TestimonialStatus @default(DRAFT)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([clientId])
+  @@map("testimonials")
+}
+
+// =============================================================================
+// PLATFORM (notifications, logging, settings)
+// =============================================================================
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+/// `type` is a free-form event key (e.g. "invoice.paid", "milestone.approved")
+/// rather than an enum — new notification types are added constantly as
+/// features ship, and an enum would need a schema migration for each one.
+/// `related_resource_*` is an intentionally unenforced polymorphic reference
+/// (Postgres has no native polymorphic FK); validated at the application
+/// layer only.
+model Notification {
+  id                  String              @id @default(uuid(7)) @db.Uuid
+  tenantId            String              @map("tenant_id") @db.Uuid
+  userId              String              @map("user_id") @db.Uuid
+  type                String
+  channel             NotificationChannel @default(IN_APP)
+  title               String
+  body                String?
+  relatedResourceType String?             @map("related_resource_type")
+  relatedResourceId   String?             @map("related_resource_id") @db.Uuid
+  readAt              DateTime?           @map("read_at")
+  dismissedAt         DateTime?           @map("dismissed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([userId, readAt])
+  @@index([tenantId, createdAt])
+  @@map("notifications")
+}
+
+/// Human-readable business timeline (the portal's "Timeline (event feed)"
+/// and the admin activity dashboard) — NOT the compliance audit trail; see
+/// `AuditLog` for that. Append-only, no soft-delete/version.
+model ActivityLog {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  projectId   String? @map("project_id") @db.Uuid
+  actorUserId String? @map("actor_user_id") @db.Uuid
+  verb        String
+  summary     String
+  metadata    Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  actor   User?    @relation("ActivityLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([projectId])
+  @@index([actorUserId])
+  @@map("activity_logs")
+}
+
+/// Immutable, write-once compliance/security trail. Field shape matches
+/// docs/architecture/database.md exactly (actor, action, resource,
+/// before/after, ip, ua, timestamp). Never updated, never soft-deleted.
+model AuditLog {
+  id           String  @id @default(uuid(7)) @db.Uuid
+  tenantId     String  @map("tenant_id") @db.Uuid
+  actorUserId  String? @map("actor_user_id") @db.Uuid
+  action       String
+  resourceType String  @map("resource_type")
+  resourceId   String? @map("resource_id") @db.Uuid
+  before       Json?
+  after        Json?
+  ipAddress    String? @map("ip_address")
+  userAgent    String? @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  actor  User?  @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([actorUserId])
+  @@map("audit_logs")
+}
+
+/// Tenant-level configuration (feature flags, branding, preferences) — NEVER
+/// secrets (those live in the vault/KMS per CLAUDE.md, not the database).
+model Setting {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  key         String
+  value       Json
+  description String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // NOTE (Phase 1.1B): partial unique WHERE deleted_at IS NULL — see User note above.
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("settings")
+}

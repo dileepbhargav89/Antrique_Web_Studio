@@ -9,6 +9,10 @@ build/
 out/
 *.tsbuildinfo
 
+# Generated Prisma Client (deterministic from schema.prisma — regenerate with
+# `pnpm --filter @antrique/api db:generate`, wired as a postinstall too)
+apps/api/generated/
+
 # Turbo
 .turbo/
 

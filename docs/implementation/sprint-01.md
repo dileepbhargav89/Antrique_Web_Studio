@@ -9,9 +9,9 @@
 ## Tasks
 - [x] **Monorepo + tooling** (S) — confirm pnpm workspaces, Turbo, TS strict, lint/format run
   - depends on: nothing
-- [ ] **Database schema + migrations** (L) — tables from docs/architecture/database.md
+- [x] **Database schema + migrations** (L) — tables from docs/architecture/database.md
   - depends on: tooling
-- [ ] **RLS policies** (part of above) — tenant_id isolation on every table
+- [x] **RLS policies** (part of above) — tenant_id isolation on every table
   - depends on: schema
 - [ ] **Auth integration** (L) — managed IdP, JWT verify, sessions (HTTP-only cookie)
   - depends on: schema (users table)
