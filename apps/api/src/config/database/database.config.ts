@@ -3,7 +3,8 @@ import { validateEnv } from '../env.validation';
 
 // Configuration data only — no connection is opened here and nothing under
 // apps/api/prisma/ (schema, migrations, seed) is touched by this namespace.
-// PrismaModule/PrismaService (Phase 1.2B) will read from it via ConfigService.
+// PrismaService (apps/api/src/database/, Phase 1.2D.2) reads from it via
+// constructor injection (@Inject(databaseConfig.KEY)), not ConfigService.
 export default registerAs('database', () => {
   const env = validateEnv();
   return {

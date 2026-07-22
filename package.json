@@ -36,6 +36,10 @@
   "pnpm": {
     "neverBuiltDependencies": [
       "@nestjs/core"
-    ]
+    ],
+    "overrides": {
+      "multer": "^2.2.0",
+      "lodash": "^4.18.1"
+    }
   }
 }

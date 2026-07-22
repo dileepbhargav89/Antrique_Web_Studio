@@ -1,0 +1,22 @@
+# Engineering polish pass (pre-Backend-v1.0-review) — Task 2, Container
+# Security Scanning. Accepted-risk list for Trivy findings against
+# infrastructure/docker/api.Dockerfile's `runtime` image
+# (.github/workflows/ci.yml's `container-security-scan` step,
+# `aquasecurity/trivy-action`). One CVE/GHSA id per line, each with a
+# comment explaining WHY it's accepted — no bare id may be added without
+# one, matching the same reachability-first discipline
+# apps/api/audit-allowlist.json already applies to `pnpm audit` findings
+# (see docs/architecture/security.md §11/§14/§15).
+#
+# Currently empty. No entry has been added because no real Trivy scan has
+# been run against a real build yet — Docker itself is not available in
+# this development environment (see docs/architecture/deployment.md's own
+# note on this limitation). The `container-security-scan` CI job is
+# configured to FAIL on any HIGH/CRITICAL finding by default; the first
+# real CI run is what will surface anything that needs triage here. Do not
+# pre-populate this file with guessed entries — an accepted-risk list
+# written without a real finding to react to is not a real risk
+# assessment.
+#
+# Format once real triage happens:
+#   CVE-2024-XXXXX  # <package>: <why unreachable/accepted, and by whom/when>

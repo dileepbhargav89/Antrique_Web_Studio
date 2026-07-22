@@ -16,6 +16,12 @@ apps/api/generated/
 # Turbo
 .turbo/
 
+# Generated OpenAPI artifact (scripts/generate-openapi.ts) — regenerated
+# from the real Nest bootstrap on every CI run, never hand-maintained or
+# committed; obtained from CI's `openapi-spec` artifact (see
+# docs/architecture/deployment.md "OpenAPI artifact generation").
+apps/api/openapi.json
+
 # Testing
 coverage/
 

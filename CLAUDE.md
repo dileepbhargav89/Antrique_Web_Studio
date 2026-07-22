@@ -3,7 +3,7 @@
 Full-service web agency platform. Hybrid: SEO marketing site + client portal +
 internal admin console. Monorepo (pnpm workspaces + Turbo).
 
-## Build / test / lint  (update once package.json scripts are real)
+## Build / test / lint
 - install: `pnpm install`
 - dev: `pnpm dev`
 - test: `pnpm test`
@@ -12,13 +12,15 @@ internal admin console. Monorepo (pnpm workspaces + Turbo).
 
 ## Architecture (one line each — detail in docs/architecture/)
 - Next.js frontend: marketing = SSG/ISR (indexed), portal = SSR (auth). Never cross-import.
-- Modular-monolith backend (apps/api): modules auth/projects/billing/crm/notifications/content.
+- Modular-monolith backend (apps/api): real modules auth/catalog/bespoke/inventory/orders/crm/billing/admin
+  (complete, API-frozen as of Backend v1.0 Review Phase 3). projects/content remain unbuilt scaffold.
 - PostgreSQL + RLS multi-tenancy (tenant_id spine), Redis cache/queue, managed IdP auth.
 
 ## Non-negotiable rules
 - Follow CONTRIBUTING.md — it is the engineering standard.
 - Tenant scope on EVERY query; RLS is the backstop, not the only gate.
-- API conforms to packages/api-contract/openapi/openapi.yaml (authoritative).
+- API contract is frozen (Backend v1.0 Phase 3) — apps/api/openapi.json (CI-generated) / live GET /api/docs
+  is authoritative, NOT packages/api-contract (a pre-implementation draft — see that package's own README).
 - Never handle raw card/credential data; payments via hosted gateway; never auto-submit for a user.
 - Every feature ships with tests + WCAG AA accessibility + audit logging.
 

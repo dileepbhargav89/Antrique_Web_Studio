@@ -34,9 +34,13 @@ phase. Reasons:
   message.
 - Not a repo-wide mandate — `packages/shared` has no validation library
   yet either. This is documented as this phase's decision for env
-  validation specifically; a reasonable default to reuse for DTO
-  validation later (Phase 1.2B.3+/ValidationPipe) if the team wants one
-  library end to end, but that's a future decision, not this one.
+  validation specifically. **Resolved (Phase 1.2D.5):** DTO/HTTP request
+  validation uses `class-validator`/`class-transformer`, not Zod —
+  the idiomatic NestJS pairing with the built-in `ValidationPipe`
+  (`apps/api/src/common/pipes/`), not the "one library end to end"
+  option this note once left open. Two libraries for two genuinely
+  different concerns (env parsing vs. DTO decoration), not an
+  inconsistency.
 
 ## 2. Schema
 
@@ -58,6 +62,14 @@ copy that can drift; read the file for the literal schema. Summary:
 | `SWAGGER_PATH` | string | no | `/api/docs` | feeds `swagger` |
 | `HEALTH_PATH` | string | no | `/health` | feeds `health` |
 | `REDIS_URL` | URL string | **yes** (Phase 1.2B.3) | — | feeds both `cache` and `queue` — one validation site, two consumers |
+| `JWT_ACCESS_SECRET` | string, min 32 chars | **yes** (Phase 1.2D.6) | — | no sensible default for a real cryptographic secret; feeds `jwt` (`apps/api/src/jwt/config/jwt.config.ts`, graduated outside this folder — see `configuration.md` §1) |
+| `JWT_ACCESS_TOKEN_TTL` | integer (seconds) | no | `900` | feeds `jwt` |
+| `JWT_REFRESH_SECRET` | string, min 32 chars | **yes** (Phase 1.2D.6) | — | distinct from `JWT_ACCESS_SECRET` so a compromised access token can't forge a refresh token; feeds `jwt` |
+| `JWT_REFRESH_TOKEN_TTL` | integer (seconds) | no | `2592000` | feeds `jwt` |
+| `HASH_MEMORY_COST` | integer (KiB) | no | `19456` | Argon2id memory cost, OWASP-recommended minimum; feeds `hash` (`apps/api/src/password/config/hash.config.ts`, graduated outside this folder — see `configuration.md` §1) |
+| `HASH_TIME_COST` | integer (iterations) | no | `2` | Argon2id time cost; feeds `hash` |
+| `HASH_PARALLELISM` | integer (threads) | no | `1` | Argon2id parallelism; feeds `hash` |
+| `DEFAULT_TENANT_ID` | UUID string | **yes** (Milestone 1) | — | stopgap tenant for `AuthRepository`'s login query; no sensible default for a real tenant identifier; feeds `defaultTenant` (`apps/api/src/modules/auth/config/default-tenant.config.ts`, graduated outside this folder — see `configuration.md` §1) |
 
 *(13 variables total as of Phase 1.2B.3; the first 6 rows are Phase*
 *1.2B.2's original set.)*
@@ -175,6 +187,14 @@ Both appear twice in the real terminal output — once as a clean Nest
 `[ExceptionHandler]` log line, once as Node's default uncaught-exception
 printout with a module-loader stack trace — see §3 for why.
 
+**Automated coverage (added Pre-Phase 1.2D stabilization pass):** both
+scenarios above, plus every other case in this doc (the boolean gotcha —
+§4, all custom error messages — §5, the edge-case sweep — §8, and the
+caching behavior — "Best practices" below), are now also exercised by
+`apps/api/src/config/env.validation.spec.ts` (16 tests) — this section's
+captured output remains the reference for what a real terminal session
+looks like, the spec file is what CI actually runs on every change.
+
 ## 7. Adding a new validated variable
 
 1. Add the field to `envSchema` in `env.validation.ts` (type, required/
@@ -265,6 +285,8 @@ Phase 1.2B.2 review report (not duplicated here — see
   observability, and the other 10 still-placeholder domains) — added when
   each domain graduates from placeholder, per §7. Redis (`cache`/`queue`)
   already graduated in Phase 1.2B.3 — no longer in this list.
-- `ValidationPipe`/DTO-level request validation (Phase 1.2B.3+) —
-  unrelated layer (HTTP request bodies, not process startup config),
-  though may reuse Zod per §1's closing note.
+- `ValidationPipe`/DTO-level request validation — real as of Phase
+  1.2D.5 (`apps/api/src/common/pipes/`), using `class-validator`, not
+  Zod (see §1's closing note) — an unrelated layer from this doc's own
+  scope (HTTP request bodies, not process startup config), so no longer
+  in this list but not covered here either.

@@ -1,0 +1,96 @@
+# Milestone 14 (Production Infrastructure) — a genuinely production-shaped
+# stack, distinct from the root docker-compose.yml (which is dev-oriented —
+# "Local/production-shaped stack," its own header comment — host ports
+# exposed for local psql/redis-cli access, no restart policy, no version
+# stamping). This file is for an actual single-host/VM deployment target;
+# for anything beyond that (managed Postgres, a real orchestrator), most of
+# `postgres`/`redis` here becomes unnecessary — see
+# docs/architecture/deployment.md "Deployment topologies."
+#
+# Usage: docker compose -f docker-compose.prod.yml up -d
+# (deliberately NOT combined with docker-compose.override.yml — that file
+# is dev-only hot-reload convenience, explicitly excluded here by not
+# being on the default `docker-compose.yml`/`docker-compose.override.yml`
+# auto-merge path at all.)
+#
+# Required before starting: a real apps/api/.env (see
+# docs/architecture/environment.md) — env_file below is `required: true`,
+# unlike the dev compose file's `required: false`, since a production
+# deployment with no real config is a startup failure, not a fallback-to-
+# defaults situation.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: antrique
+      POSTGRES_PASSWORD: antrique
+      POSTGRES_DB: antrique
+    # No host port mapping — only `api` (on the same compose network)
+    # needs to reach this; a production host has no reason to expose the
+    # database port publicly.
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U antrique']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: runtime
+      args:
+        # Overridden at build time by CI (see .github/workflows/ci.yml's
+        # "Docker build" step) — these defaults only apply to a manual
+        # local `docker compose -f docker-compose.prod.yml build`.
+        APP_VERSION: ${APP_VERSION:-0.0.0-unknown}
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+    restart: unless-stopped
+    env_file:
+      - path: apps/api/.env
+        required: true
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://antrique:antrique@postgres:5432/antrique
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      target: runtime
+    restart: unless-stopped
+    env_file:
+      - path: apps/web/.env.local
+        required: false
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000/api/v1
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:

@@ -81,6 +81,166 @@ const envSchema = z.object({
   // default, same treatment as DATABASE_URL: a real external connection
   // string shouldn't have an app-side fallback baked in.
   REDIS_URL: z.string().url({ message: 'REDIS_URL must be a valid connection string URL' }),
+
+  // jwt (Phase 1.2D.6) — infrastructure only, nothing signs/verifies a
+  // real token yet (see apps/api/src/jwt/README.md). Secrets required,
+  // no default (same treatment as DATABASE_URL/REDIS_URL — a real
+  // cryptographic secret shouldn't have an app-side fallback), with a
+  // minimum length: a short secret is brute-forceable regardless of the
+  // signing algorithm, so this is a genuine security constraint, not a
+  // speculative one. TTLs are plain integer seconds (not a duration
+  // string like "15m") to match .env.example's existing
+  // JWT_ACCESS_TOKEN_TTL/JWT_REFRESH_TOKEN_TTL values, which predate
+  // this phase — @nestjs/jwt's signOptions.expiresIn accepts a number
+  // of seconds natively, no string parsing needed.
+  JWT_ACCESS_SECRET: z
+    .string()
+    .min(32, { message: 'JWT_ACCESS_SECRET must be at least 32 characters long' }),
+  JWT_ACCESS_TOKEN_TTL: z.coerce
+    .number({ invalid_type_error: 'JWT_ACCESS_TOKEN_TTL must be a valid number of seconds' })
+    .int({ message: 'JWT_ACCESS_TOKEN_TTL must be a whole number' })
+    .positive({ message: 'JWT_ACCESS_TOKEN_TTL must be greater than 0' })
+    .default(900),
+  JWT_REFRESH_SECRET: z
+    .string()
+    .min(32, { message: 'JWT_REFRESH_SECRET must be at least 32 characters long' }),
+  JWT_REFRESH_TOKEN_TTL: z.coerce
+    .number({ invalid_type_error: 'JWT_REFRESH_TOKEN_TTL must be a valid number of seconds' })
+    .int({ message: 'JWT_REFRESH_TOKEN_TTL must be a whole number' })
+    .positive({ message: 'JWT_REFRESH_TOKEN_TTL must be greater than 0' })
+    .default(2592000),
+
+  // hash (Phase 1.2D.7) — Argon2id tuning parameters only, consumed by
+  // apps/api/src/password/config/hash.config.ts (see
+  // apps/api/src/password/README.md). All three are OWASP-recommended
+  // Argon2id minimums, tunable per-environment (e.g. lower on a resource-
+  // constrained dev box) without a code change — the algorithm variant
+  // itself (argon2id) is NOT exposed here, the same "not configurable"
+  // treatment already applied to the JWT signing algorithm (HS256, fixed
+  // in token.service.ts): a configurable variant would let an environment
+  // accidentally weaken to argon2i/argon2d, a security regression rather
+  // than a legitimate environment difference.
+  HASH_MEMORY_COST: z.coerce
+    .number({ invalid_type_error: 'HASH_MEMORY_COST must be a valid number of kilobytes' })
+    .int({ message: 'HASH_MEMORY_COST must be a whole number' })
+    .positive({ message: 'HASH_MEMORY_COST must be greater than 0' })
+    .default(19456),
+  HASH_TIME_COST: z.coerce
+    .number({ invalid_type_error: 'HASH_TIME_COST must be a valid number of iterations' })
+    .int({ message: 'HASH_TIME_COST must be a whole number' })
+    .positive({ message: 'HASH_TIME_COST must be greater than 0' })
+    .default(2),
+  HASH_PARALLELISM: z.coerce
+    .number({ invalid_type_error: 'HASH_PARALLELISM must be a valid number of threads' })
+    .int({ message: 'HASH_PARALLELISM must be a whole number' })
+    .positive({ message: 'HASH_PARALLELISM must be greater than 0' })
+    .default(1),
+
+  // runtime metadata (Milestone 14 — Production Infrastructure) — stamped
+  // by the CI/CD pipeline (`.github/workflows/ci.yml`) and the Docker build
+  // (`infrastructure/docker/api.Dockerfile`'s `APP_VERSION`/`GIT_COMMIT_SHA`
+  // build args), never introspected from `package.json` at runtime — a
+  // build-output-layout-independent value survives `dist/` restructuring,
+  // and matches how every other externally-supplied identity value in this
+  // schema (DATABASE_URL, JWT secrets) already works: the app reads what
+  // it's told, it doesn't go looking. Defaults are safe, obviously-a-
+  // default placeholders for local dev, where "what exact version am I
+  // running" is never a real question.
+  APP_VERSION: z.string().min(1).default('0.0.0-dev'),
+  GIT_COMMIT_SHA: z.string().default('unknown'),
+
+  // swagger production guard (Milestone 14) — see SWAGGER_ENABLED above and
+  // this schema's own `superRefine` below. A second, independently-set flag
+  // rather than reusing SWAGGER_ENABLED's own value: requires a deliberate,
+  // separate opt-in to run Swagger in production, so a `.env` that already
+  // has `SWAGGER_ENABLED=true` from local dev (a very plausible copy-paste
+  // starting point for a new environment's config) doesn't silently expose
+  // the full API surface in production the moment NODE_ENV flips.
+  SWAGGER_ALLOW_IN_PRODUCTION: booleanFromString('false'),
+
+  // defaultTenant (Milestone 1 — Real Authentication) — a stopgap, not real
+  // multi-tenant resolution: no subdomain/header-based tenant-resolution
+  // mechanism exists anywhere in this app, and building one is explicitly
+  // out of this milestone's scope. Every query this milestone adds against
+  // `User` (a multi-tenant table) is scoped to this one, fixed tenant —
+  // satisfying CLAUDE.md's non-negotiable "tenant scope on EVERY query"
+  // rule honestly, without pretending multi-tenant switching exists yet.
+  // Required, no default — a wrong/missing tenant ID here means every
+  // login silently queries the wrong (or a nonexistent) tenant's users,
+  // the same "no sensible fallback for a real identifier" treatment
+  // DATABASE_URL/REDIS_URL/JWT secrets already get. Consumed by
+  // apps/api/src/modules/auth/config/default-tenant.config.ts — see
+  // apps/api/src/modules/auth/README.md.
+  DEFAULT_TENANT_ID: z.string().uuid({ message: 'DEFAULT_TENANT_ID must be a valid UUID' }),
+});
+
+// The exact placeholder secret values apps/api/.env.example ships — the
+// starting point anyone copies to create a real .env. Comparing against
+// these two literals (not a generic "looks weak" heuristic, which would be
+// either too strict or too loose) catches the single most concrete, most
+// likely real-world production-safety failure this app can detect: a
+// deployment that copied .env.example and never replaced the secret.
+const PLACEHOLDER_JWT_SECRETS = new Set([
+  'replace-me-with-a-real-random-secret-32-chars-min',
+  'replace-me-with-a-different-real-random-secret-32-chars-min',
+]);
+
+// Milestone 14 (Production Infrastructure) — "Detect: unsafe production
+// settings." Cross-field checks a per-field `z.string()`/`z.enum()` schema
+// entry can't express on its own (each of these depends on NODE_ENV's own
+// value) — `superRefine` runs after every individual field already passed
+// its own validation, so these three checks only ever see already-well-
+// formed values, never a missing/malformed one (that's already a distinct,
+// earlier error from the per-field rules above). Each is a *specific,
+// verifiable* production misconfiguration, not a vague "looks risky"
+// heuristic — the same bar this codebase's other security-relevant
+// defaults (JWT algorithm pinning, Argon2 variant) already hold
+// themselves to: a real, nameable regression, not speculative hardening.
+const envSchemaWithProductionSafety = envSchema.superRefine((data, ctx) => {
+  if (data.NODE_ENV !== 'production') {
+    return;
+  }
+
+  if (data.SWAGGER_ENABLED && !data.SWAGGER_ALLOW_IN_PRODUCTION) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['SWAGGER_ENABLED'],
+      message:
+        'SWAGGER_ENABLED must be false in production unless SWAGGER_ALLOW_IN_PRODUCTION=true — ' +
+        'Swagger documents the full API surface, including every DTO shape; enabling it in ' +
+        'production requires a deliberate second opt-in, not a copied-over dev default.',
+    });
+  }
+
+  if (!data.DATABASE_SSL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DATABASE_SSL'],
+      message:
+        'DATABASE_SSL must be true in production — an unencrypted database connection is not ' +
+        'acceptable outside local development.',
+    });
+  }
+
+  if (PLACEHOLDER_JWT_SECRETS.has(data.JWT_ACCESS_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['JWT_ACCESS_SECRET'],
+      message:
+        'JWT_ACCESS_SECRET is still the placeholder value from .env.example — generate a real ' +
+        'secret (e.g. `openssl rand -base64 48`) before deploying to production.',
+    });
+  }
+
+  if (PLACEHOLDER_JWT_SECRETS.has(data.JWT_REFRESH_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['JWT_REFRESH_SECRET'],
+      message:
+        'JWT_REFRESH_SECRET is still the placeholder value from .env.example — generate a real ' +
+        'secret (e.g. `openssl rand -base64 48`) before deploying to production.',
+    });
+  }
 });
 
 export type EnvVars = z.infer<typeof envSchema>;
@@ -103,7 +263,7 @@ export function validateEnv(config: Record<string, unknown> = process.env): EnvV
     return cachedEnv;
   }
 
-  const result = envSchema.safeParse(config);
+  const result = envSchemaWithProductionSafety.safeParse(config);
   if (!result.success) {
     const issues = result.error.issues
       .map((issue) => `  • ${issue.path.join('.') || '(root)'}: ${issue.message}`)

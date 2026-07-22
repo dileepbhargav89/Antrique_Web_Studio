@@ -69,6 +69,42 @@ configuration for future products or integrations") — unlike the 6 domains
 graduated this phase, which are platform-internal infrastructure with
 genuine, if minimal, content today.
 
+**A 9th real namespace, `loggerOptions`, exists outside this folder
+entirely.** `apps/api/src/logging/config/logger-options.config.ts`
+(Phase 1.2C.2) registers it via `ConfigModule.forFeature()` from within
+`LoggingModule`, not via this folder's frozen `config.module.ts`
+`forRoot()` call — it's owned by and lives alongside the Logging module,
+following this doc's `registerAs()`/`ConfigType` conventions exactly
+without being one of the 8+10 domains counted above. See
+`apps/api/src/logging/README.md`.
+
+**A 10th, `jwt`, follows the same path.**
+`apps/api/src/jwt/config/jwt.config.ts` (Phase 1.2D.6) registers it via
+`ConfigModule.forFeature()` from within `token.module.ts`, for the
+identical reason — owned by and consumed only by the JWT module, not
+this folder's frozen `config.module.ts`. Not to be confused with
+`config/auth/`, one of the 10 still-placeholder domains above, which
+remains reserved for managed IdP settings specifically. See
+`apps/api/src/jwt/README.md`.
+
+**An 11th, `hash`, follows the same path.**
+`apps/api/src/password/config/hash.config.ts` (Phase 1.2D.7) registers
+it via `ConfigModule.forFeature()` from within `password.module.ts`, for
+the identical reason — owned by and consumed only by the Password
+module, not this folder's frozen `config.module.ts`. Holds only Argon2id
+tuning parameters (`memoryCost`, `timeCost`, `parallelism`) — password
+business policy (minimum length, reuse rules) is a distinct, still-
+unbuilt concern. See `apps/api/src/password/README.md`.
+
+**A 12th, `defaultTenant`, follows the same path.**
+`apps/api/src/modules/auth/config/default-tenant.config.ts` (Milestone
+1) registers it via `ConfigModule.forFeature()` from within
+`auth.module.ts`, for the identical reason — owned by and consumed only
+by `AuthRepository`. Holds one value (`id`, from the required
+`DEFAULT_TENANT_ID` env var) — a stopgap for real multi-tenant
+resolution (no subdomain/header-based mechanism exists), not a real
+tenant-switching feature. See `apps/api/src/modules/auth/README.md`.
+
 ## 2. Conventions
 
 These apply to every domain, present and future:
@@ -221,6 +257,14 @@ provider actually needs, not the whole merged config tree).
   different things**, each already flagged as distinct in their own
   READMEs — called out here together since "notification" is the one word
   that could plausibly mean any of the three.
+- **`loggerOptions` (Phase 1.2C.2) lives in `apps/api/src/logging/`, not
+  in this folder.** This folder's `config.module.ts` `forRoot()` call is
+  frozen (Phase 1.2B RC); a config concern owned by and consumed only by
+  one module — not a general-purpose domain other subsystems would
+  reuse — graduates alongside that module instead, registered via
+  `ConfigModule.forFeature()`. It still follows every convention in §2
+  (`registerAs()`, `index.ts` barrel, `ConfigType` access) — only the
+  folder and registration call differ.
 
 ## Deferred (explicitly out of scope for this doc)
 - Environment-shape validation — built in Phase 1.2B.2, see

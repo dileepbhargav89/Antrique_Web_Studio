@@ -1,0 +1,13 @@
+// Milestone 5 — the shared response envelope every paginated list endpoint
+// returns, matching PaginationQueryDto's own "shared once a second real
+// consumer exists" reasoning. `total` is the full match count (not just
+// `items.length`) so a client can compute total pages
+// (`Math.ceil(total / limit)`) without a second request.
+export class PaginatedResponseDto<T> {
+  constructor(
+    readonly items: readonly T[],
+    readonly total: number,
+    readonly page: number,
+    readonly limit: number,
+  ) {}
+}

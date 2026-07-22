@@ -28,3 +28,23 @@
 - **CI/CD:** PR gates → staging → canary → blue-green, instant rollback, feature
   flags. Expand-then-contract migrations.
 - **Docs:** OpenAPI, ADRs, runbooks, Storybook.
+
+## Status vs. this document (Milestone 14 — Production Infrastructure)
+
+This document describes the target-state design; `apps/api` is the only
+workload with real code as of Milestone 14. Real, as of this milestone:
+containerized (`infrastructure/docker/api.Dockerfile`, non-root,
+multi-stage), CI-gated (`.github/workflows/ci.yml` — lint/typecheck/test/
+build/format, migration validation against a real database, a Docker
+build check), self-documenting (OpenAPI/Swagger, gated outside
+development), health-check-observable (`GET /health/{live,ready,startup}`),
+and structured-log-observable end to end with caller-visible correlation
+ids. **Not yet real:** the CDN/edge/WAF layer, Terraform IaC, managed
+container hosting, the queue/workers layer (background job infrastructure
+exists — `apps/api/src/jobs/` — but nothing runs on it, no Redis/BullMQ),
+`apps/web`'s own production hardening (out of this milestone's backend-only
+scope), and the full CI/CD pipeline described above (`staging → canary →
+blue-green`) — `deploy-staging.yml`/`deploy-production.yml` remain
+manual-trigger-only, stopping short of an actual deploy step, pending a
+real hosting target. See `docs/architecture/deployment.md` for what's
+actually real today.

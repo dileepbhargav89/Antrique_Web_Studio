@@ -1,0 +1,145 @@
+{
+  "_comment": "Engineering polish pass (pre-Backend-v1.0-review) — Task 3, Dependency Security Validation. Each entry is a `pnpm audit` finding this project has explicitly reviewed and accepted, keyed by its GHSA advisory id (extracted from the finding's own `url` field). scripts/check-audit-allowlist.js compares every CURRENT `pnpm audit --json` finding against this list: anything already here passes quietly (no CI noise for a documented, already-triaged risk); anything NOT here fails the build with a clear message, forcing a real triage decision before it can be ignored. The full reasoning behind each entry lives in docs/architecture/security.md §11/§14 — this file is the machine-checked index into that reasoning, not a duplicate of it. Do not add an entry here without also updating security.md; do not remove an entry without confirming the underlying package/finding is actually gone from `pnpm audit`.",
+  "accepted": [
+    {
+      "ghsaId": "GHSA-5j98-mcp5-4vw2",
+      "package": "glob",
+      "severity": "high",
+      "reason": "dev-only (@nestjs/cli's own build tooling); vulnerable -c/--cmd flag never invoked by this project's own scripts",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-c2c7-rcm5-vvqj",
+      "package": "picomatch",
+      "severity": "high",
+      "reason": "dev-only (@nestjs/cli -> @angular-devkit build tooling)",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-3v7f-55p6-f55p",
+      "package": "picomatch",
+      "severity": "moderate",
+      "reason": "dev-only (@nestjs/cli -> @angular-devkit build tooling)",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-ph9p-34f9-6g65",
+      "package": "tmp",
+      "severity": "high",
+      "reason": "dev-only (@nestjs/cli -> inquirer); this project's scripts never invoke the CLI's interactive schematics that use it",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-52f5-9888-hmc6",
+      "package": "tmp",
+      "severity": "low",
+      "reason": "dev-only (@nestjs/cli -> inquirer)",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-2g4f-4pwh-qvx6",
+      "package": "ajv",
+      "severity": "moderate",
+      "reason": "dev-only (@nestjs/cli -> @angular-devkit build tooling)",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-5v7r-6r5c-r473",
+      "package": "file-type",
+      "severity": "moderate",
+      "reason": "bundled by @nestjs/common for its unused FileTypeValidator pipe; no file-upload endpoint exists anywhere in this app, vulnerable parser never invoked",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-j47w-4g3g-c36v",
+      "package": "file-type",
+      "severity": "moderate",
+      "reason": "same as GHSA-5v7r-6r5c-r473 — bundled, unreachable, no upload endpoint",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-92pp-h63x-v22m",
+      "package": "@hono/node-server",
+      "severity": "moderate",
+      "reason": "dev-only (prisma -> @prisma/dev, Prisma's own dev CLI helper); not part of the runtime bundle, no static files served through it",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-frvp-7c67-39w9",
+      "package": "@hono/node-server",
+      "severity": "moderate",
+      "reason": "same dev-only prisma dev-tooling chain as GHSA-92pp-h63x-v22m",
+      "reference": "docs/architecture/security.md §14"
+    },
+    {
+      "ghsaId": "GHSA-qx2v-qp2m-jg93",
+      "package": "postcss",
+      "severity": "moderate",
+      "reason": "apps/web workspace dependency (via next), out of apps/api's own scope",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-36xv-jgw5-4q75",
+      "package": "@nestjs/core",
+      "severity": "moderate",
+      "reason": "vulnerable code path is SseStream._transform(); this app has zero @Sse() endpoints anywhere",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-w5hq-g745-h8pq",
+      "package": "uuid",
+      "severity": "moderate",
+      "reason": "dev-only (autocannon's own benchmark tooling -> hyperid); only exercised when manually running benchmarks/run-benchmarks.js",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-q8mj-m7cp-5q26",
+      "package": "qs",
+      "severity": "moderate",
+      "reason": "vulnerable path is qs.stringify() with encodeValuesOnly; this app's own code and body-parsing only ever call qs.parse(), confirmed by search",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-8fgc-7cc6-rx7x",
+      "package": "webpack",
+      "severity": "low",
+      "reason": "build-time only (@nestjs/cli/ts-loader); this project's webpack config never enables the experimental buildHttp feature the advisory requires",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-38r7-794h-5758",
+      "package": "webpack",
+      "severity": "low",
+      "reason": "same as GHSA-8fgc-7cc6-rx7x — build-time only, buildHttp never enabled",
+      "reference": "docs/architecture/security.md §11"
+    },
+    {
+      "ghsaId": "GHSA-v422-hmwv-36x6",
+      "package": "body-parser",
+      "severity": "low",
+      "reason": "mitigated at the application layer independent of library version — main.ts's own request body limit is a fixed '256kb' string literal that can never be the invalid/unparseable value this advisory requires",
+      "reference": "docs/architecture/security.md §5, §11"
+    },
+    {
+      "ghsaId": "GHSA-mh29-5h37-fv8m",
+      "package": "js-yaml",
+      "severity": "moderate",
+      "reason": "@nestjs/swagger only ever calls js-yaml's dump() (serializing its own generated OpenAPI document); never load()/safeLoad() on request-supplied input — the vulnerable parse path is unreachable",
+      "reference": "docs/architecture/security.md §14"
+    },
+    {
+      "ghsaId": "GHSA-h67p-54hq-rp68",
+      "package": "js-yaml",
+      "severity": "moderate",
+      "reason": "same reachability analysis as GHSA-mh29-5h37-fv8m — dump()-only usage, never parses external input",
+      "reference": "docs/architecture/security.md §14"
+    },
+    {
+      "ghsaId": "GHSA-52cp-r559-cp3m",
+      "package": "js-yaml",
+      "severity": "high",
+      "reason": "same reachability analysis as GHSA-mh29-5h37-fv8m — dump()-only usage, never parses external input",
+      "reference": "docs/architecture/security.md §14"
+    }
+  ]
+}

@@ -81,12 +81,19 @@ per-row to keep the diagram legible — see §3 Multi-tenant strategy.)*
 
 | Domain | Models | Key relationships |
 |---|---|---|
-| **Tenancy & access control** | Tenant, User, Role, Permission, UserRole, RolePermission, Session | `Permission` is the only non-tenant-scoped table (global catalog). RBAC chain: `Permission → RolePermission → Role (per tenant) → UserRole → User`. `Session` tracks this app's own refresh tokens post-IdP-auth, with a self-relation (`replacedBySessionId`) for rotation/reuse-detection. |
+| **Tenancy & access control** | Tenant, User, Role, Permission, UserRole, RolePermission, Session | `Permission` is the only non-tenant-scoped table (global catalog). RBAC chain: `Permission → RolePermission → Role (per tenant) → UserRole → User`. `Session` tracks this app's own refresh tokens post-IdP-auth, with a self-relation (`replacedBySessionId`) for rotation/reuse-detection. This RBAC chain's first real application-layer reader is **Milestone 3 (Role & Permission Foundation)** — `apps/api/src/authorization/` queries it (`RoleRepository`/`PermissionRepository`) to back `RolesGuard`/`PermissionsGuard`; the schema itself is unchanged, no migration needed. |
 | **CRM** | ContactRequest, Lead, Client | Funnel: `ContactRequest → Lead → Client`, each step optional (a Lead can arrive without a prior ContactRequest; a Client can exist without ever being a Lead — e.g. entered directly by sales). `Client` is the agency's *own* customer org, distinct from `Tenant` (the platform isolation boundary) — see §3. |
 | **Delivery** | Project, ProjectMember, Milestone, Task, Document | `Project` belongs to a `Client` (required) and optionally traces back to the originating `Lead`. `Task` is finer-grained than `Milestone` and optionally nests under one. `ProjectMember` and `Document.uploadedBy` are how `User` connects to delivery work. |
 | **Commerce** | Quotation, QuotationItem, Invoice, InvoiceItem, Payment | `Quotation`/`Invoice` are header+line-item pairs (see §4 for why line items were added beyond the literal model list). `Invoice.quotationId` traces lineage from an accepted quote. `Payment` is append-only — one row per gateway webhook event, never mutated. |
 | **Content / CMS** | Media, Blog, Testimonial | `Media` is the CMS asset library (independent from delivery `Document`s). `Blog.coverMediaId` links to it. `Testimonial.clientId` is optional (a testimonial can cite an unlinked author). |
 | **Platform** | Notification, ActivityLog, AuditLog, Setting | `ActivityLog` (human-readable feed) and `AuditLog` (immutable compliance trail) are deliberately separate — see §4. `Setting` holds non-secret tenant config only. |
+| **Catalog** (Milestone 5) | Category, Collection, Product, ProductVariant, ProductImage | Genuinely new schema this milestone (unlike Milestones 3/4, which found their target entities already modeled) — migration `20260720190000_add_product_catalog`. `Product` optionally belongs to one `Category` and one `Collection` (both simple one-to-many — no join table, no hierarchy). `ProductVariant`/`ProductImage` are line-item-shaped like `QuotationItem`/`InvoiceItem` (`createdAt`/`updatedAt` only, Cascade-deleted with their parent `Product`, no independent soft-delete/version) — neither has its own repository/controller; both are written only as nested Prisma creates under `POST /products`. No design guidance existed in `docs/product/` for this domain — flagged, not silently assumed (see `apps/api/src/modules/catalog/README.md`). |
+| **Bespoke Customizer** (Milestone 6) | FabricCategory, Fabric, FabricImage, ProductFabric, MeasurementProfile, Measurement, StyleOptionGroup, StyleOption, StyleOptionIncompatibility, ProductCustomization, PricingAdjustment, MonogramOption | 12 new tables — 10 named "core entities" plus `ProductFabric`/`StyleOptionIncompatibility`, both structurally-required joins not individually named in this milestone's brief (see each model's own schema.prisma comment) — migration `20260720200000_add_bespoke_customizer`. `ProductCustomization` is 1:1 with `Product` (`productId` is `@unique`, a true 1:1 Prisma's own relation validator requires); `Product ↔ Fabric` is many-to-many via `ProductFabric` (a fabric like "Navy Wool Twill" is reusable across many products, unlike Category/Collection's simple one-to-many). `FabricImage`/`StyleOptionGroup`/`PricingAdjustment`/`MonogramOption` are line-item-shaped like `ProductVariant`/`ProductImage` (no independent repository/controller); `StyleOption`/`Fabric`/`MeasurementProfile`/`FabricCategory` get full audit/soft-delete treatment (the first three have standalone controllers; `FabricCategory` doesn't yet but is schema'd consistently for one). No design guidance existed in `docs/product/` for this domain either — checked fresh, not assumed from Milestone 5's own finding (see `apps/api/src/modules/bespoke/README.md`). |
+| **Inventory & Stock Management** (Milestone 7) | Warehouse, InventoryItem, InventoryTransaction, InventoryReservation, Supplier, SupplierProduct | 6 new tables — migration `20260721100000_add_inventory_management`. `InventoryItem`/`SupplierProduct` both reference EITHER a `ProductVariant` OR a `Fabric`, never both — a hand-written cross-column `CHECK` constraint mirroring the existing `Quotation.leadId`/`clientId` XOR precedent (`20260717091000_check_constraints`), extended from a lead-vs-client choice to a variant-vs-fabric one. `InventoryTransaction` is the one genuinely append-only table in this whole schema — `createdAt` only, no `updatedAt`/soft-delete/version, since "Transactions are append-only" is this milestone's own explicit business rule, not just a convention. `InventoryItem.onHand`/`reserved` are persisted running counters (`Decimal(12,3)`, not `(12,2)` like money — fabric stock is realistically fractional); `Available = OnHand − Reserved` is computed at read time, never stored. `reserved <= on_hand` and `on_hand >= 0` are hand-written `CHECK` constraints — the database-level backstop behind `InventoryService`'s own pre-checks for "Prevent negative stock"/"Prevent over-reservation." No design guidance existed in `docs/product/` for this domain either (see `apps/api/src/modules/inventory/README.md`). |
+| **Order Management & Checkout** (Milestone 8) | Customer, CustomerAddress, Order, OrderItem, OrderStatusHistory, PaymentRecord | 6 new tables, 1 new enum (`OrderStatus`) — migration `20260722090000_add_order_management`. `Customer` is distinct from both `Client` (the agency's own B2B customer org) and `User` (portal/staff accounts), though it may optionally link to one via `userId`. `OrderStatusHistory` is the second genuinely append-only table in this schema (after `InventoryTransaction`) — `createdAt` only, "No status mutation without history" is this milestone's own explicit business rule, enforced structurally. `OrderItem`/`CustomerAddress` are line-item-shaped like `ProductVariant`/`ProductImage` (no independent repository/controller); `OrderItem.inventoryReservationId` is `@unique`, linking each line to the real `InventoryReservation` `OrderService` created for it (the same row order cancellation walks to release stock). `PaymentRecord` is a placeholder only — no service/controller/repository, purely a schema anchor for the payment-gateway-integration milestone this one's own "Do NOT Implement" list explicitly defers. Non-negative `CHECK` constraints on `orders.subtotal`/`total`, `order_items.unit_price`/`line_total`, `payment_records.amount`, plus a positive-quantity check on `order_items.quantity`. No design guidance existed in `docs/product/` for this domain either (see `apps/api/src/modules/orders/README.md`). |
+| **CRM & Customer Operations** (Milestone 9) | LeadSource, CustomerNote, CustomerActivity, FollowUpTask, CustomerTag, CustomerTagAssignment — plus 2 additive columns + 1 new enum value on the EXISTING `Lead` | 6 new tables, 2 new enums (`CustomerActivityType`, `FollowUpStatus`) — migration `20260722100000_add_crm_customer_operations`. Architecture audit found `Lead` (Phase 1.1A) already fully modeled with zero application-layer consumers — reused wholesale, not duplicated; `Lead.leadSourceId` (→ `LeadSource`, additive alongside the existing free-text `source` column) and `Lead.convertedCustomerId` (→ the NEW `Customer`, kept deliberately separate from the pre-existing `Lead.convertedClientId` → `Client`) are the only two new columns, plus `LeadStatus.ARCHIVED`. `CustomerActivity.customerId` is NULLABLE — "lead creation" fires before any Customer exists, so that trigger's own row is anchored by `relatedLeadId` alone (caught and fixed before any code depended on the wrong, required shape — see `docs/implementation/decisions.md`); it's the third genuinely append-only table in this schema (after `InventoryTransaction`/`OrderStatusHistory`). `FollowUpTask` references EITHER a `Lead` OR a `Customer`, never both — a hand-written cross-column `CHECK` constraint (`follow_up_tasks_lead_xor_customer_check`) mirroring the existing `Quotation.leadId`/`clientId` XOR precedent, extended from a lead-vs-client choice to a lead-vs-customer one. `CustomerTagAssignment` is a pure join with no soft-delete column (unassign is a real `DELETE`, same treatment `ProductFabric` already established). No design guidance existed in `docs/product/` for this domain either (see `apps/api/src/modules/crm/README.md`). |
+| **Payments & Billing Foundation** (Milestone 10) | TaxRate, PaymentMethod, PaymentAllocation — plus additive columns on the EXISTING `Invoice`/`Payment` | 3 new tables — migration `20260722110000_add_payments_billing_foundation`. Architecture audit found `Invoice`/`InvoiceItem`/`Payment`/`Quotation`/`QuotationItem` (Phase 1.1A/1.1B) already fully modeled with zero application-layer consumers — notably, `invoices_amount_paid_check` (`20260717091000_check_constraints`) already enforced "Paid amount never exceeds invoice total," and `payments` already had `UPDATE`/`DELETE` revoked at the database-privilege level (`20260717091500_row_level_security`), both before any application code existed. `Invoice.clientId` (the pre-existing agency-billing path → `Client`) relaxed from required to nullable, gaining NEW `customerId`/`orderId` (→ Milestone 8's `Customer`/`Order`, "Invoices belong to Orders") and `taxRateId` — kept deliberately separate from `clientId`, the same "two independent paths on one shared entity" pattern Milestone 9 established for `Lead`. Two new `CHECK` constraints: `invoices_client_xor_customer_check` (mirroring `quotations_lead_xor_client_check`) and `invoices_order_requires_customer_check`. `Payment.invoiceId`/`provider`/`providerRef` (the pre-existing gateway-webhook-event shape) relaxed to nullable, gaining NEW `paymentMethodId`/`method`/`reference` for this milestone's own manually-recorded-payment flow; the new `PaymentAllocation` table is the actual invoice-by-invoice ledger, given the SAME database-privilege-level `UPDATE`/`DELETE` revoke `payments` already has (`payment_allocations_amount_check` enforces a positive amount). `PaymentMethod` gets a hand-written partial unique index on soft-deletable `(tenantId, slug)`. No design guidance existed in `docs/product/` for this domain either (see `apps/api/src/modules/billing/README.md`). |
+| **Admin Platform, Analytics & Notifications** (Milestone 11) | NotificationTemplate, SystemEvent, DashboardWidget, ScheduledReport — plus additive columns on the EXISTING `Notification` | 4 new tables, 4 new enums (`NotificationStatus`, `SystemEventSeverity`, `DashboardWidgetType`, `ReportType`) — migration `20260722120000_add_admin_platform_analytics_notifications`. Architecture audit found `Notification`/`AuditLog` (Phase 1.1B) already fully modeled with zero application-layer consumers; `AuditLog` needed ZERO schema changes (pure reuse — its pre-existing `UPDATE`/`DELETE` revoke already enforced "Immutable audit history"). `Notification` gained an additive DELIVERY-state lifecycle it never had (`status`/`sentAt`/`failedAt`/`retryCount`/`lastError` — the pre-existing columns only tracked recipient interaction via `readAt`/`dismissedAt`). `SystemEvent` is the fourth genuinely append-only table in this schema (after `InventoryTransaction`/`OrderStatusHistory`/`CustomerActivity`) — a generic, tenant-scoped operational ledger distinct from both `AuditLog` (compliance/security, actor-centric) and `ActivityLog` (project-scoped human timeline). `NotificationTemplate`/`DashboardWidget` both get hand-written partial unique indexes on their own soft-deletable key columns (`(tenantId, key, channel)` / `(tenantId, key)`). `system_events`/`scheduled_reports` get the SAME database-privilege-level `UPDATE`/`DELETE` revoke `payments`/`audit_logs`/`payment_allocations` already have. No design guidance existed in `docs/product/` for this domain either (see `apps/api/src/modules/admin/README.md`). |
 
 ## 3. Multi-tenant strategy
 
@@ -117,13 +124,17 @@ per-row to keep the diagram legible — see §3 Multi-tenant strategy.)*
   without a second RLS dimension.
 - **Consistency at insert time.** Rows whose `tenant_id` is derived from a
   parent (`Milestone.tenantId` from `Project.tenantId`, etc.) rely on the
-  application layer setting it correctly on insert (from the same JWT tenant
-  claim used for everything else) — there's no cross-table CHECK constraint
-  enforcing `Milestone.tenant_id = Project.tenant_id` in Postgres. This is a
-  known, accepted gap belt-and-suspenders-wise: RLS is still the real
-  backstop (a row with a wrong tenant_id would just be invisible/inaccessible
-  to the wrong tenant, not silently leaked), consistent with
-  `CLAUDE.md`'s "RLS is the backstop, not the only gate."
+  application layer setting it correctly on insert. Not from a JWT tenant
+  claim — Milestone 4 (Organization & Multi-Tenant Foundation) deliberately
+  does NOT add tenant information to the JWT (that milestone's own explicit
+  requirement); the tenant comes from the request's resolved `TenantContext`
+  instead (`apps/api/src/tenant/` — hostname → `X-Tenant-ID` header →
+  `DEFAULT_TENANT_ID` dev-only fallback, see §10). There's no cross-table
+  CHECK constraint enforcing `Milestone.tenant_id = Project.tenant_id` in
+  Postgres either way. This is a known, accepted gap belt-and-suspenders-
+  wise: RLS is still the real backstop (a row with a wrong tenant_id would
+  just be invisible/inaccessible to the wrong tenant, not silently leaked),
+  consistent with `CLAUDE.md`'s "RLS is the backstop, not the only gate."
 
 ## 3.1. Referential actions (`onDelete`)
 
@@ -233,6 +244,13 @@ Several fields exist only because the entity can't function without them,
 even though no doc mentions them explicitly:
 - **`User.idpSubject`** — the linkage key to the external managed IdP.
   Without it there's no way to resolve an incoming JWT to a `User` row.
+  **Amendment (Milestone 1 — Real Authentication):** `idpSubject` became
+  optional and a sibling `passwordHash` column was added — the original
+  IdP-only design didn't account for local email+password auth, which
+  security.md's "Auth" line now documents as a second, independent
+  credential path. Both fields are nullable; a `User` needs at least one
+  populated, not enforced at the schema level (see schema.prisma's `User`
+  model comment). Full rationale: docs/implementation/decisions.md.
 - **`User.firstName`/`lastName`** — the OpenAPI `User` schema has no name
   field at all (only email/status/role_ids); a real admin UI needs
   *something* to display. Worth a follow-up OpenAPI update.
@@ -454,6 +472,112 @@ Four migrations, applied in order, under `apps/api/prisma/migrations/`:
 | `20260717091000_check_constraints` | Every CHECK constraint from §5's expanded worklist (non-negative money, positive quantities, rating range, file-size sanity, the quotation lead/client XOR, session expiry ordering). |
 | `20260717091500_row_level_security` | Roles, grants, the `version` auto-increment trigger, and RLS policies on all 25 tenant tables + `tenants` itself. Full design in §9. |
 
+The four above are Phase 1.1B's original baseline. Later migrations are
+documented in their owning milestone's own module README rather than
+repeated here in full — `20260720095236_add_password_hash_to_users`
+(Milestone 1, `apps/api/src/modules/auth/README.md`) and
+`20260720190000_add_product_catalog` (Milestone 5, `apps/api/src/modules/catalog/README.md`
+— 5 new tables, hand-written partial unique indexes on
+`Category`/`Collection`/`Product`'s slugs, a plain one on
+`ProductVariant`'s sku, non-negative `CHECK` constraints, and full RLS
+enablement + all 3 standard policies for every one of the 5 new tables,
+extending §9's pattern to schema added after Phase 1.1B rather than
+letting RLS coverage silently lag new tables) and
+`20260720200000_add_bespoke_customizer` (Milestone 6,
+`apps/api/src/modules/bespoke/README.md` — 12 new tables (including 2
+join tables), hand-written partial unique indexes on
+`FabricCategory`/`Fabric`/`ProductCustomization`'s soft-deletable unique
+keys (`ProductCustomization`'s is on `productId` alone, a true 1:1),
+a plain one on `Measurement`'s `(measurementProfileId, name)` (that table
+has no soft-delete), non-negative/positive-value `CHECK` constraints plus
+two new conditional/bounded ones (`pricing_adjustments`' `PERCENTAGE`
+bound, `monogram_options.max_characters > 0`), and full RLS enablement +
+all 3 standard policies for every one of the 12 new tables, including
+both join tables — the same "every new tenant table gets RLS" pattern
+`add_product_catalog` already established, explicitly extended here to
+join tables too) and `20260721100000_add_inventory_management`
+(Milestone 7, `apps/api/src/modules/inventory/README.md` — 6 new tables,
+hand-written partial unique indexes on `Warehouse`/`Supplier`'s
+soft-deletable unique keys, and — proposed by NEITHER the auto-diff NOR
+any prior migration — TWO partial unique indexes on `InventoryItem`, one
+per side of its `productVariantId`/`fabricId` XOR (`WHERE
+product_variant_id IS NOT NULL AND deleted_at IS NULL` and the fabric
+equivalent); a new cross-column `CHECK` constraint class beyond every
+prior migration's non-negative/positive-value checks — `reserved <=
+on_hand` (referencing two columns of the same row) and a variant-xor-
+fabric `CHECK` mirroring `quotations_lead_xor_client_check` exactly,
+applied to both `InventoryItem` and `SupplierProduct`; full RLS
+enablement + all 3 standard policies for every one of the 6 new tables.
+And `20260722090000_add_order_management` (Milestone 8,
+`apps/api/src/modules/orders/README.md` — 6 new tables, a hand-written
+partial unique index on `Customer`'s soft-deletable `(tenantId, email)`
+("Duplicate email handling"), a correctly **plain** unique index on
+`order_items.inventory_reservation_id` (not soft-deletable, and a genuine
+1:1 with `InventoryReservation`); non-negative `CHECK` constraints on
+`orders.subtotal`/`total`, `order_items.unit_price`/`line_total`,
+`payment_records.amount`, plus a positive-quantity check on
+`order_items.quantity`; full RLS enablement + all 3 standard policies for
+every one of the 6 new tables — verified live via direct `pg_tables`/
+`pg_policies` queries (6/6 tables, `rowsecurity = true`, 18/18 policies).
+And `20260722100000_add_crm_customer_operations` (Milestone 9,
+`apps/api/src/modules/crm/README.md` — 6 new tables plus 2 additive
+nullable columns + 1 new enum value on the existing `leads` table;
+hand-written partial unique indexes on `LeadSource`/`CustomerTag`'s
+soft-deletable `(tenantId, slug)`; a new `CHECK`-constraint class beyond
+every prior migration's own non-negative/positive-value/XOR checks in
+the sense that it's the FIRST lead-vs-*customer* XOR (previous ones were
+all lead-vs-client or variant-vs-fabric) —
+`follow_up_tasks_lead_xor_customer_check`; `customer_activities.customer_id`
+is nullable, a genuine first for this schema's own "Customer"-prefixed
+entities; full RLS enablement + all 3 standard policies for every one of
+the 6 new tables — verified live via direct `pg_tables`/`pg_policies`
+queries (6/6 tables, `rowsecurity = true`, 18/18 policies). This
+migration was applied, caught mid-development to have a defect
+(`customer_activities.customer_id` initially required — see
+`docs/implementation/decisions.md`), rolled back live, corrected, and
+re-applied — all before any seed data or application code depended on
+the wrong shape.
+And `20260722110000_add_payments_billing_foundation` (Milestone 10,
+`apps/api/src/modules/billing/README.md` — 3 new tables plus additive
+nullable columns on the existing `invoices`/`payments` tables (`invoices.client_id`
+relaxed from required to nullable; `payments.invoice_id`/`provider`/
+`provider_ref` relaxed to nullable); a hand-written partial unique index
+on `PaymentMethod`'s soft-deletable `(tenantId, slug)`; two new `CHECK`
+constraints — `invoices_client_xor_customer_check` (mirroring
+`quotations_lead_xor_client_check`) and
+`invoices_order_requires_customer_check` — plus
+`payment_allocations_amount_check` and `tax_rates_rate_check` (bounded
+`[0, 100]`, mirroring `pricing_adjustments`' own `PERCENTAGE` bound from
+Milestone 6); the PRE-EXISTING `invoices_amount_paid_check`
+(`20260717091000_check_constraints`) needed no changes — it already
+enforced "Paid amount never exceeds invoice total" before this milestone
+existed. `payment_allocations` gets the SAME database-privilege-level
+`UPDATE`/`DELETE` revoke `payments` already has
+(`20260717091500_row_level_security`) — extended here via a fresh
+`REVOKE` statement in this migration, not by editing that earlier one;
+full RLS enablement + all 3 standard policies for every one of the 3 new
+tables — verified live via direct `pg_tables`/`pg_policies` queries
+(3/3 tables, `rowsecurity = true`, 9/9 policies).
+And `20260722120000_add_admin_platform_analytics_notifications`
+(Milestone 11, `apps/api/src/modules/admin/README.md` — 4 new tables
+plus additive nullable columns on the existing `notifications` table
+(`status`/`sent_at`/`failed_at`/`retry_count`/`last_error`); hand-written
+partial unique indexes on `NotificationTemplate`'s soft-deletable
+`(tenantId, key, channel)` and `DashboardWidget`'s soft-deletable
+`(tenantId, key)`; two new `CHECK` constraints —
+`notifications_retry_count_check` and `dashboard_widgets_sort_order_check`
+(both `>= 0`); `AuditLog` needed zero schema changes at all (pure reuse
+— its own `UPDATE`/`DELETE` revoke from `20260717091500_row_level_security`
+already enforced this milestone's own "Immutable audit history").
+`system_events`/`scheduled_reports` get the SAME database-privilege-level
+`UPDATE`/`DELETE` revoke `payments`/`audit_logs`/`payment_allocations`
+already have; full RLS enablement + all 3 standard policies for every
+one of the 4 new tables — verified live via direct `pg_tables`/
+`pg_policies`/`information_schema.role_table_grants` queries (4/4
+tables, `rowsecurity = true`, 12/12 policies; `system_events`/
+`scheduled_reports` grants confirmed limited to `INSERT`+`SELECT` only
+for `antrique_app`/`antrique_service`).
+
 **How `init` was generated.** No live Postgres was reachable in the
 environment this phase was implemented in, so `prisma migrate dev` (which
 needs a real connection to compute its diff via a shadow database) wasn't
@@ -640,13 +764,122 @@ the file. Re-running the script updates the same rows rather than
 duplicating them — safe to run repeatedly, including in automated dev-
 environment resets.
 
-**What's seeded:** 1 tenant ("Antrique Web Studio"), 34 permissions across
-every module (auth/projects/billing/crm/content/settings/audit), 4 system
-roles (admin, project_manager, sales, client) with realistic per-role
-permission grants, 1 default admin user + role assignment, 3 tenant
-settings, 4 sample clients, 4 sample leads (one converted, feeding a
-`convertedClientId`), 3 sample projects (one tracing back to the converted
-lead via `leadId`).
+**What's seeded:** 1 tenant ("Antrique Web Studio"), 88 permissions across
+every module (auth/projects/billing/crm/content/settings/audit/catalog/
+bespoke/inventory/orders/admin — 9 from **Milestone 5** [`categories:*`/`collections:*`/
+`products:*`], 11 from **Milestone 6**
+[`fabrics:*`/`measurement_profiles:*`/`style_options:*` (3 each) +
+`product_customizations:read`/`write` (2, no delete)], 8 from
+**Milestone 7** [`warehouses:*`/`suppliers:*` (3 each) +
+`inventory:read`/`write` (2, no delete)], 6 from **Milestone 8**
+[`customers:read`/`write`/`delete` (3) + `orders:read`/`write`/`cancel`
+(3, `cancel` replacing the usual `delete` tier)], 10 from **Milestone 9**
+[`customer_notes:*`/`follow_up_tasks:*`/`customer_tags:*` (3 each) +
+`customer_activities:read` (1, no write — every row written internally)
+— `leads:read`/`leads:write` already existed from Phase 1.1B, reused as-
+is, not recounted here], 6 from **Milestone 10**
+[`invoices:void`/`payments:refund` (2, Admin+-only) + `payments:write`
+(1) + `tax_rates:read`/`write`/`delete` (3) — `invoices:read`/
+`invoices:write`/`payments:read` already existed from Phase 1.1B, reused
+as-is, not recounted here], 4 from **Milestone 11**
+[`notifications:manage`/`dashboard:read`/`reports:read`/`reports:write`
+(all Manager+) — `audit_logs:read` already existed from Phase 1.1B,
+reused as-is (Admin+Super Admin only, never granted to Manager — zero
+grant changes needed), not recounted here]), 7 system roles —
+the original 4 (admin, project_manager, sales, client) plus 3 more added
+by **Milestone 3 (Role & Permission Foundation)**: `super_admin` (same
+full grant set as `admin` — this schema has no platform-vs-tenant-admin
+distinction to differentiate them on yet), `manager` (same grant set as
+`project_manager`, plus Milestone 5's catalog read+write, Milestone 6's
+bespoke-customizer read+write, Milestone 7's inventory read+write,
+Milestone 8's customers/orders read+write — but NOT `orders:cancel`,
+this milestone's own explicit Admin+-only tier — Milestone 9's
+`leads:write` [it already had `leads:read`] plus read+write for the new
+CRM entities, Milestone 10's `invoices:write` [it already had
+`invoices:read`] plus `payments:read`/`write` and `tax_rates:read`/
+`write` — but NOT `invoices:void`/`payments:refund` — and Milestone 11's
+`notifications:manage`/`dashboard:read`/`reports:read`/`write` — but NOT
+`audit_logs:read`, this milestone's own explicit Admin+-only tier),
+`customer` (same
+grant set as `client`, plus Milestone
+5's catalog read-only, Milestone 6's bespoke-customizer read-only,
+Milestone 7's inventory read-only, Milestone 8's `customers:read`/
+`orders:read`, Milestone 9's `leads:read` [this milestone's own
+explicit "Customer+" read tier] plus read-only for the new CRM
+entities, and Milestone 10's `payments:read` [Phase 1.1B's own
+permission, previously granted to nobody] plus `tax_rates:read` —
+Milestone 11 grants `customer` nothing new, its own admin surface is
+Manager+ only) — additive only, the
+original 4 roles are untouched, not renamed/removed, so no existing
+`UserRole`/`RolePermission` row is orphaned by a reseed. 4 seeded users (unchanged
+since Milestone 3): `admin@antrique.dev`/`superadmin@antrique.dev`/
+`manager@antrique.dev`/`customer@antrique.dev`, each with a real Argon2id
+`passwordHash` and one `UserRole` assignment, one per new role — see
+`apps/api/prisma/seed.ts`'s own comments and
+`apps/api/src/authorization/README.md`. 3 tenant settings, 4 sample
+clients, 4 sample leads (one converted, feeding a `convertedClientId`), 3
+sample projects (one tracing back to the converted lead via `leadId`); 3
+sample categories, 2 sample collections, 3 sample products with variants/
+images (**Milestone 5** — deliberately generic example catalog data, no
+design guidance existed to seed against; see
+`apps/api/src/modules/catalog/README.md`); 1 additional category
+("Bespoke Garments") and 1 additional product ("Made-to-Measure Oxford
+Shirt") plus 2 fabric categories, 2 fabrics with one image, 1 measurement
+profile (linked to the seeded `customer@antrique.dev` user) with 3
+measurements, 1 product customization with 2 style option groups, 4
+style options, 1 style-option incompatibility pair, 1 pricing adjustment,
+and 1 monogram option (**Milestone 6** — the jewelry catalog above has no
+natural fabric/measurement/style-option story, so this milestone seeds
+one distinct garment product specifically to exercise the customizer; see
+`apps/api/src/modules/bespoke/README.md`); 1 warehouse ("Main Warehouse"),
+2 inventory items — one Fabric-based (Navy Wool Twill, 150 on hand) and
+one ProductVariant-based (the solitaire ring's gold variant, 25 on hand,
+3 reserved) — demonstrating both sides of the variant/fabric XOR, 3
+inventory transactions (2 `RECEIPT` + 1 `RESERVATION`) forming a
+consistent ledger against those counters, 1 active reservation, and 1
+supplier ("Millbrook Textiles") with 1 supplier product (**Milestone 7**;
+see `apps/api/src/modules/inventory/README.md`); 1 customer with 1
+address (default shipping+billing) and 1 order (1 order item against the
+seeded solitaire ring variant, with its own inventory reservation feeding
+the Milestone 7 reserved count above, and an initial `DRAFT`
+`OrderStatusHistory` row) (**Milestone 8**; see
+`apps/api/src/modules/orders/README.md`); 5 `LeadSource` rows (Website/
+Referral/Cold Outbound/Trade Show/Social Media), 1 additional Lead
+("Morgan Ellis") demonstrating the NEW `convertedCustomerId` path
+end-to-end (kept entirely separate from the existing `LEAD_CONVERTED_ID`
+lead above, which still demonstrates the pre-existing `convertedClientId`
+path, untouched by this milestone) with its own resulting Customer, 2
+`CustomerNote` rows on the Milestone 8 Jordan customer, 3
+`CustomerActivity` rows matching what `LeadService`/`FollowUpService`
+would have written for these exact events (`LEAD_CREATED`,
+`LEAD_CONVERTED`, `FOLLOW_UP_COMPLETED`), 2 `FollowUpTask` rows — one
+Customer-scoped and `COMPLETED`, one Lead-scoped (against the existing
+`LEAD_QUALIFIED_ID`) and `PENDING` — demonstrating both sides of
+`FollowUpTask`'s own lead-vs-customer XOR, and 2 `CustomerTag` rows
+("VIP"/"Wholesale") with 1 assignment (**Milestone 9**; see
+`apps/api/src/modules/crm/README.md`); 2 `TaxRate` rows ("GST 18%",
+"No Tax"), 3 `PaymentMethod` rows (Cash, Bank Transfer, Cheque), and a
+real `Invoice` → `Payment` → `PaymentAllocation` chain against the
+Milestone 8 Jordan order — created `DRAFT`, issued, then paid off via
+TWO payments (one partial via bank transfer, one completing it via
+cash), demonstrating "Partial payment"/"Multiple payments"/"Mark invoice
+paid" live in seed data (**Milestone 10**; see
+`apps/api/src/modules/billing/README.md`); 3 `NotificationTemplate` rows
+(order shipped/invoice overdue/follow-up due), 3 `DashboardWidget` rows
+(one per real aggregated-module consumer with a natural KPI story —
+Orders revenue, Inventory low-stock, CRM lead conversion), 2 sample
+`Notification` rows on the Milestone 8 Jordan order/invoice — one `SENT`,
+one `FAILED` (the `FAILED` one is what "Retry placeholder" has something
+real to act on), 2 `AuditLog` rows (one business event tied to the
+seeded order, one security event), 2 `SystemEvent` rows (one `WARNING`
+tied to the seeded low-stock fabric, one `ERROR` tied to the seeded
+`FAILED` notification — the same row `DashboardService.overview()`'s own
+`systemErrorCount24h` picks up live), and 1 `ScheduledReport`
+(`SALES_SUMMARY`, computed from the same live order data, demonstrating
+"Download metadata" against a real, generated snapshot) (**Milestone
+11**; see `apps/api/src/modules/admin/README.md`) — idempotency
+re-verified (ran the seed script twice, identical resulting row counts
+both times).
 
 **Scope gap, flagged rather than silently resolved.** The seed brief also
 asked for "Services" and "Blog Categories." Neither is a modeled entity in

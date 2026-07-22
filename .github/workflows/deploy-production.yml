@@ -1,26 +1,55 @@
 name: Deploy - Production
 
-# Manual-only until real hosting infrastructure exists. Terraform/k8s are still
-# empty scaffolds (see infrastructure/terraform/README.md and
-# docs/architecture/architecture.md "Hosting/CDN"). This workflow verifies the
-# build is deployable and stops short of an actual deploy so it never gives a
-# false-green signal about infra that doesn't exist yet. Once real, gate this
-# behind required reviewers on the "production" GitHub Environment.
+# Engineering polish pass (pre-Backend-v1.0-review) — Task 4, Deployment
+# Workflow Templates. Manual-only until real hosting infrastructure exists
+# (Terraform/k8s are still empty scaffolds — see
+# infrastructure/terraform/README.md and docs/architecture/architecture.md
+# "Hosting/CDN"). This is a TEMPLATE: it builds a real, deployable Docker
+# image and validates the pipeline shape (deploy vs. rollback, health
+# verification), but every step past "the image exists" is a deliberate
+# placeholder — see each step's own comment for exactly what's real vs.
+# not. Filling in a placeholder requires a real hosting target and real
+# secrets in this workflow's "production" GitHub Environment, neither of
+# which are configured yet. Once real: gate the "production" GitHub
+# Environment behind required reviewers (Settings → Environments) — this
+# workflow file does not (and cannot) configure that itself.
+
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'deploy a new build, or roll back to a previous one'
+        required: true
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      version:
+        description: >-
+          For deploy: git ref/tag to build (defaults to the ref this
+          workflow was triggered on — see docs/architecture/release.md
+          "Release tagging strategy" for how a real tag should get here).
+          For rollback: the image tag/version to roll back to (required).
+        required: false
+        type: string
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+env:
+  PNPM_VERSION: 9.15.9
+
 jobs:
-  build-and-deploy:
-    name: Build (deploy step pending infrastructure)
+  deploy:
+    name: Deploy to production
+    if: github.event.inputs.action == 'deploy'
     runs-on: ubuntu-latest
     environment: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -30,7 +59,8 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9.15.9
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -38,8 +68,80 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Deploy
+      # Real step — the exact artifact a deploy would ship, stamped with
+      # real identity metadata (see docs/architecture/environment.md
+      # "Runtime version stamping"). Prefer a real tag for
+      # `github.event.inputs.version` in production (not just a commit
+      # sha) — see docs/architecture/release.md "Release tagging strategy."
+      - name: Docker build (runtime image)
         run: |
-          echo "No production hosting target is provisioned yet."
-          echo "Fill in this step once infrastructure/terraform provisions a target."
+          docker build \
+            -f infrastructure/docker/api.Dockerfile \
+            --target runtime \
+            --build-arg APP_VERSION=${{ github.event.inputs.version || github.sha }} \
+            --build-arg GIT_COMMIT_SHA=${{ github.sha }} \
+            -t antrique-api:production-${{ github.sha }} .
+
+      # PLACEHOLDER — no container registry or hosting target is
+      # provisioned yet (infrastructure/terraform/README.md remains a
+      # scaffold). A real implementation pushes the image built above to
+      # a registry (`${{ secrets.PRODUCTION_REGISTRY }}`, a per-environment
+      # secret bound to this workflow's "production" GitHub Environment —
+      # not yet configured) and triggers the hosting target to roll it
+      # out (e.g. a managed-container `update-service` call, using
+      # `${{ secrets.PRODUCTION_DEPLOY_TOKEN }}`, also not yet
+      # configured). Fails deliberately rather than faking success — see
+      # docs/architecture/release.md "Deferred, explicitly."
+      - name: Deploy (placeholder — no hosting target provisioned)
+        run: |
+          echo "Would push antrique-api:production-${{ github.sha }} to \${{ secrets.PRODUCTION_REGISTRY }}"
+          echo "Would trigger a rollout on the production hosting target using \${{ secrets.PRODUCTION_DEPLOY_TOKEN }}"
+          echo "No production hosting target is provisioned yet — see docs/architecture/deployment.md §7."
           exit 1
+
+      # PLACEHOLDER — would poll the newly-deployed instance's
+      # GET /health/ready (see docs/architecture/runbook.md §1/§6) via
+      # `${{ secrets.PRODUCTION_HEALTH_CHECK_URL }}` until it returns 200
+      # (or a timeout is reached), and fail (triggering a rollback in a
+      # real pipeline) if it never does. `if: false` — never runs today;
+      # flip once a real deploy step exists.
+      - name: Verify deployment health (placeholder)
+        if: false
+        run: |
+          echo "Would curl \${{ secrets.PRODUCTION_HEALTH_CHECK_URL }}/health/ready until 200 or timeout"
+
+  rollback:
+    name: Roll back production
+    if: github.event.inputs.action == 'rollback'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate rollback target was provided
+        run: |
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            echo "::error::A rollback requires 'version' (the image tag/version to roll back to)."
+            exit 1
+          fi
+
+      # PLACEHOLDER — see docs/architecture/release.md "Rollback
+      # checklist," including its own explicit note that a rollback
+      # restores CODE, not necessarily every side effect already
+      # committed to the database — check audit logs/AuditLog after any
+      # real rollback, not just this workflow's own exit status. A real
+      # implementation re-points production at the PREVIOUSLY-BUILT image
+      # tag `github.event.inputs.version` (never rebuilds it) using the
+      # same `${{ secrets.PRODUCTION_DEPLOY_TOKEN }}` a forward deploy
+      # would use.
+      - name: Roll back (placeholder — no hosting target provisioned)
+        run: |
+          echo "Would re-point production at image tag ${{ github.event.inputs.version }}"
+          echo "using \${{ secrets.PRODUCTION_DEPLOY_TOKEN }} — no hosting target is provisioned yet."
+          exit 1
+
+      - name: Verify rollback health (placeholder)
+        if: false
+        run: |
+          echo "Would curl \${{ secrets.PRODUCTION_HEALTH_CHECK_URL }}/health/ready until 200 or timeout"

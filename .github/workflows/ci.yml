@@ -62,3 +62,277 @@ jobs:
 
       - name: Format check
         run: pnpm format:check
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: apps/api/dist
+          retention-days: 7
+
+  # Milestone 14 (Production Infrastructure) — "Migration validation." A
+  # separate job (its own real postgres service container, not the
+  # lint/typecheck/test/build job above — those never touch a real
+  # database, every existing suite mocks its repositories) applying every
+  # committed migration to a throwaway database and confirming Prisma
+  # reports a clean, fully-applied state. Catches the class of bug no unit
+  # test can: a migration that's syntactically valid TypeScript-adjacent
+  # SQL but fails against a real Postgres (a real, prior example in this
+  # project's own history — see docs/implementation/decisions.md's
+  # "Phase 1 production-readiness audit: fixed a real upsert/partial-index
+  # bug").
+  migration-validation:
+    name: Validate database migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: antrique
+          POSTGRES_PASSWORD: antrique
+          POSTGRES_DB: antrique
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U antrique"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://antrique:antrique@localhost:5432/antrique
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply every migration to a clean database
+        run: pnpm --filter @antrique/api db:migrate:deploy
+
+      - name: Confirm no drift / no pending migrations remain
+        run: pnpm --filter @antrique/api db:migrate
+
+  # Engineering polish pass (pre-Backend-v1.0-review) — Task 1, OpenAPI
+  # Artifact Generation. Its own job (own throwaway Postgres — cheaper and
+  # simpler than sharing migration-validation's, since GitHub Actions jobs
+  # don't share a filesystem/service across job boundaries anyway) rather
+  # than a step tacked onto an existing job, so it can run in parallel with
+  # every other job instead of serializing behind one. Boots the REAL
+  # `AppModule` (scripts/generate-openapi.ts — see that file's own header
+  # comment) — this is not a hand-maintained document, and CI is what
+  # proves "always matches the backend" isn't just an aspiration.
+  openapi-generation:
+    name: Generate OpenAPI specification
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: antrique
+          POSTGRES_PASSWORD: antrique
+          POSTGRES_DB: antrique
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U antrique"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://antrique:antrique@localhost:5432/antrique
+      # Not a real cache/queue connection — REDIS_URL is validated as a
+      # well-formed URL only (env.validation.ts); nothing in this app
+      # actually opens a Redis connection (see docs/architecture/environment.md).
+      REDIS_URL: redis://localhost:6379
+      # CI-only placeholder secrets — never real credentials, only need to
+      # satisfy env.validation.ts's own shape constraints (32+ chars) so
+      # the app can boot far enough to build its OpenAPI document.
+      JWT_ACCESS_SECRET: ci-openapi-generation-access-secret-not-a-real-credential
+      JWT_REFRESH_SECRET: ci-openapi-generation-refresh-secret-not-a-real-credential
+      DEFAULT_TENANT_ID: 00000000-0000-7000-8000-000000000001
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations (schema must exist for the app to boot)
+        run: pnpm --filter @antrique/api db:migrate:deploy
+
+      - name: Generate OpenAPI specification
+        run: pnpm --filter @antrique/api generate:openapi
+
+      - name: Upload OpenAPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: apps/api/openapi.json
+          retention-days: 30
+
+  # Engineering polish pass — Task 3, Dependency Security Validation.
+  # `pnpm audit` alone would fail this job on every run (20 already-
+  # reviewed, already-documented findings — docs/architecture/security.md
+  # §11/§14) — apps/api/scripts/check-audit-allowlist.js diffs the real,
+  # current audit against apps/api/audit-allowlist.json and fails ONLY on
+  # something not already triaged there. See that script's own header
+  # comment.
+  dependency-audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check dependency audit against the documented allowlist
+        run: node apps/api/scripts/check-audit-allowlist.js
+
+  # Milestone 14 — "Docker build." Builds the exact `runtime` target
+  # docker-compose.yml/docker-compose.prod.yml both reference, on every
+  # push/PR — a Dockerfile bug (the `dist/main.js` vs `dist/src/main.js`
+  # CMD path bug this same milestone found and fixed, for instance) is
+  # invisible to lint/typecheck/test/build above, which never invoke
+  # Docker at all. Does not push anywhere (no registry credentials
+  # configured yet — see docs/architecture/deployment.md "Deferred until
+  # real hosting exists"); this step's only job is proving the image
+  # builds and, via the Dockerfile's own HEALTHCHECK, that the resulting
+  # container can actually start and pass its liveness check.
+  docker-build:
+    name: Docker build (api, runtime target) + container security scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build runtime image
+        run: |
+          docker build \
+            -f infrastructure/docker/api.Dockerfile \
+            --target runtime \
+            --build-arg APP_VERSION=${{ github.sha }} \
+            --build-arg GIT_COMMIT_SHA=${{ github.sha }} \
+            -t antrique-api:ci .
+
+      # Engineering polish pass — Task 2, Container Security Scanning.
+      # Two passes over the SAME image, deliberately: a full, unfiltered
+      # report first (every severity, including LOW/INFO) purely for
+      # visibility — nothing here fails the build — then a second,
+      # gating pass restricted to HIGH/CRITICAL, which DOES fail the
+      # build. "Report vulnerabilities... Fail only on HIGH and CRITICAL...
+      # Ignore LOW and INFO" (this task's own wording) is two distinct
+      # requirements, not one — a single HIGH/CRITICAL-only invocation
+      # would satisfy the failure condition but silently hide MEDIUM/LOW
+      # findings from the log entirely, which "report vulnerabilities"
+      # doesn't ask for.
+      - name: Trivy scan — full report (all severities, informational only)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: antrique-api:ci
+          format: table
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
+          exit-code: '0'
+
+      - name: Trivy scan — gate on HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: antrique-api:ci
+          format: table
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          trivyignores: .trivyignore
+
+  # Engineering polish pass — Task 5, Release Artifacts. Bundles what a
+  # release actually needs to be traceable after the fact: the compiled
+  # build, the OpenAPI spec that matched it, and metadata identifying
+  # exactly which commit/build produced both — one consolidated artifact
+  # instead of three separately-named ones a release process would
+  # otherwise have to correlate by hand. Depends on both source jobs via
+  # `needs:` so it only assembles once each has already succeeded — never
+  # bundles a partial/failed build.
+  release-artifacts:
+    name: Assemble release artifact bundle
+    needs: [lint-typecheck-test-build, openapi-generation]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: api-dist
+          path: release-bundle/dist
+
+      - name: Download OpenAPI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
+          path: release-bundle
+
+      # "Generate and archive: OpenAPI specification, Build version,
+      # Commit SHA, Build timestamp, Version metadata" (this task's own
+      # requirement) — `version` prefers an explicit tag/ref input
+      # (workflow_dispatch triggers, e.g. from deploy-*.yml) and falls
+      # back to the branch/ref name on a normal push/PR trigger, where no
+      # such input exists. See docs/architecture/release.md "Release
+      # tagging strategy" for when a real semantic version tag should be
+      # used here instead.
+      - name: Generate release metadata
+        run: |
+          cat > release-bundle/release-metadata.json << EOF
+          {
+            "version": "${{ github.event.inputs.version || github.ref_name }}",
+            "commitSha": "${{ github.sha }}",
+            "buildTimestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflowRunId": "${{ github.run_id }}",
+            "workflowRunNumber": "${{ github.run_number }}",
+            "triggeredBy": "${{ github.actor }}",
+            "ref": "${{ github.ref }}"
+          }
+          EOF
+          cat release-bundle/release-metadata.json
+
+      - name: Upload release artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: release-bundle
+          retention-days: 90

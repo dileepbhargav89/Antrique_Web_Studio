@@ -1,0 +1,42 @@
+# Milestone 14 (Production Infrastructure) — keeps the Docker build context
+# (repo root — every Dockerfile here builds `docker build -f ... .`, per
+# each Dockerfile's own header comment) small and, more importantly, never
+# lets a real secret or a stale local build artifact leak into an image
+# layer. `.env*` is the entry that matters most here: `apps/api/.env`
+# holds real local credentials — COPY-ing it into an image (even
+# transiently, in a layer nothing later strips) would bake a secret into
+# every derived image and every layer-cache export of it.
+
+# Dependency/build output — reinstalled/rebuilt inside the image itself;
+# copying a host copy in would use the WRONG platform's native binaries
+# (a real, common Docker footgun) and defeats each Dockerfile's own
+# layer-caching design (COPY manifests → RUN install → COPY source).
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/generated
+
+# Secrets — never send these to the Docker daemon/build context.
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# VCS / editor / OS noise
+.git
+.gitignore
+.vscode
+.idea
+*.log
+.DS_Store
+Thumbs.db
+
+# Docs/tests unrelated to what any image actually runs — smaller context,
+# faster `docker build` upload, no effect on any image's own contents
+# (nothing in these paths is COPY'd by any Dockerfile).
+docs
+infrastructure/terraform
+infrastructure/k8s
+infrastructure/observability

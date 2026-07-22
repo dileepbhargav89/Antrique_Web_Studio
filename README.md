@@ -3,19 +3,27 @@
 Full-service web agency platform — a hybrid SEO marketing site, client portal,
 and internal admin console, in one pnpm/Turborepo monorepo.
 
-Status: **Phase 0 — repository foundation.** Tooling, CI, and containerization
-are set up and verified; application features have not been built yet. See
-`docs/implementation/progress.md` for the build dashboard.
+Status: **Backend (`apps/api`) complete — API-frozen, tested, documented,
+production-ready as of Backend v1.0.** Frontend (`apps/web`) has not been
+built yet. Tooling, CI, and containerization are set up and verified. See
+`docs/implementation/progress.md` for the build dashboard — read its
+"Completed work log" for the authoritative current status; do not rely on
+this file's own status line staying current between updates.
 
 ## Stack
 
 - **Frontend** (`apps/web`): Next.js + TypeScript + Tailwind. SSG/ISR for the
-  indexed marketing site, SSR for the authenticated portal.
-- **Backend** (`apps/api`): NestJS modular monolith. Modules: auth, projects,
-  billing, crm, notifications, content.
+  indexed marketing site, SSR for the authenticated portal. **Not started.**
+- **Backend** (`apps/api`): NestJS modular monolith, complete. Real modules:
+  auth, catalog, bespoke (customizer), inventory, orders, crm, billing, admin
+  (analytics/notifications/audit/runtime) — see `apps/api/README.md` for the
+  full structure. `projects`/`content` remain scaffold-only (never built —
+  not part of any shipped milestone).
 - **Data:** PostgreSQL (RLS multi-tenancy) + Redis (cache/queue/rate-limit).
-- **Contract:** `packages/api-contract` — OpenAPI 3.1, the source of truth for
-  every endpoint.
+- **Contract:** `apps/api/openapi.json` (CI-generated, always current — see
+  `apps/api/README.md`) or the live `GET /api/docs` Swagger UI is the real
+  source of truth. `packages/api-contract` is a pre-implementation design
+  draft, superseded — see that package's own README before using it.
 
 Full architecture: `docs/architecture/architecture.md`. Design decisions:
 `docs/product/`.
@@ -66,7 +74,9 @@ apps/web/             Next.js frontend (marketing + portal)
 packages/shared/       Shared types/validation (front + back)
 packages/api-contract/ OpenAPI contract (authoritative)
 packages/config/       Shared eslint/tsconfig/tailwind config
-database/               Schema, migrations, RLS policies
+database/               Superseded Sprint 1 scaffold, intentionally empty —
+                        see database/README.md; real schema/migrations/RLS
+                        live under apps/api/prisma/
 infrastructure/         Docker, Terraform, k8s, observability
 docs/                   Product, architecture, and build-tracking docs
 ```

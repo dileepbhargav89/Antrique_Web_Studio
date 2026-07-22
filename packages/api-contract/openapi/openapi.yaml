@@ -2,10 +2,21 @@ openapi: 3.1.0
 
 # =============================================================================
 # Antrique Web Studio — REST API
-# Single source of truth for the v1 contract. No implementation.
-# Conventions: tenant-implicit (scope from token, never in URL); cursor
-# pagination; RFC 9457 problem-details errors; 404 (not 403) for foreign-tenant
-# rows; hosted-gateway payments (API never handles raw card data).
+#
+# PRE-IMPLEMENTATION DESIGN DRAFT — NOT the current contract. Written during
+# Phase 0, before any backend code existed; never reconciled against the
+# real, now-complete-and-API-frozen apps/api implementation. Several
+# conventions below (cursor pagination, RFC 9457 errors, optimistic locking)
+# were NOT what got built. For the real, authoritative, always-current
+# contract: apps/api/openapi.json (CI-generated, `pnpm --filter
+# @antrique/api generate:openapi`) or the live GET /api/docs Swagger UI.
+# See ../README.md's comparison table for the specific differences.
+#
+# Single source of truth for the ORIGINAL v1 design. No implementation.
+# Conventions AS ORIGINALLY PLANNED (see ../README.md for what changed):
+# tenant-implicit (scope from token, never in URL); cursor pagination; RFC
+# 9457 problem-details errors; 404 (not 403) for foreign-tenant rows;
+# hosted-gateway payments (API never handles raw card data).
 # =============================================================================
 
 info:

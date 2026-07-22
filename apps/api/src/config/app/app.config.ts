@@ -12,5 +12,11 @@ export default registerAs('app', () => {
     port: env.PORT,
     logLevel: env.LOG_LEVEL,
     corsAllowedOrigins: env.CORS_ALLOWED_ORIGINS,
+    // Milestone 14 (Production Infrastructure) — CI/Docker-stamped
+    // identity, consumed by the admin-only runtime metadata endpoint
+    // (modules/admin/runtime.controller.ts). See env.validation.ts's own
+    // comment for why these are supplied, not introspected.
+    version: env.APP_VERSION,
+    gitCommitSha: env.GIT_COMMIT_SHA,
   };
 });
