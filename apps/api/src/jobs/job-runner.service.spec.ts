@@ -2,6 +2,7 @@ import { JobRunner } from './job-runner.service';
 import { InMemoryDeadLetterStore } from './in-memory-dead-letter.store';
 import { Job } from './interfaces/job.interface';
 import { Logger } from '../logging';
+import { MetricsService } from '../metrics/metrics.service';
 
 const FAST_RETRY_POLICY = { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 1 };
 
@@ -14,7 +15,7 @@ function createRunner() {
     debug: jest.fn(),
     trace: jest.fn(),
   };
-  const deadLetterStore = new InMemoryDeadLetterStore();
+  const deadLetterStore = new InMemoryDeadLetterStore(new MetricsService());
   const runner = new JobRunner(logger, deadLetterStore);
   return { runner, logger, deadLetterStore };
 }

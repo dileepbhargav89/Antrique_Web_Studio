@@ -4870,4 +4870,105 @@ Format:
   `docs/implementation/progress.md`'s own log entry for the full list),
   `docs/architecture/operations.md` §6/§10.
 
+## 2026-07-30 — Phase 10, Module 6 (Monitoring): a local prom-client Registry per MetricsService, route-pattern labeling to avoid cardinality blowup, deferred alerting/dashboards with no destination to build against
+
+- **Decision:** added `prom-client` and a new `MetricsModule` (`GET
+  /metrics`, Prometheus exposition format). `MetricsService` wraps a
+  **local** `prom-client` `Registry` instance — never the package's own
+  module-level default `register` singleton. Wired into three existing
+  call sites via constructor injection: `HttpLoggingMiddleware` (records
+  `http_requests_total`/`http_request_duration_seconds` inside the
+  existing `res.on('finish', ...)` handler, reusing the same
+  already-computed `durationMs`), `PrismaService` (records
+  `db_query_duration_seconds` inside the existing `$on('query', ...)`
+  listener, reusing the same `event.duration`), and
+  `InMemoryDeadLetterStore` (a new `jobs_dead_letter_queue_size` gauge,
+  updated on `record()`/`clear()`).
+- **Why a local Registry, not the prom-client default:** the default
+  `register` is process-global mutable state shared across every
+  `new Counter(...)`/`new Histogram(...)` call anywhere in the process —
+  a second `MetricsService` construction (e.g. Jest instantiating this
+  class in more than one spec file within the same worker, which is
+  exactly what happened once `metrics.service.spec.ts`,
+  `http-logging.middleware.spec.ts`, `in-memory-dead-letter.store.spec.ts`,
+  and `job-runner.service.spec.ts` all needed a real instance) throws "A
+  metric with the name ... has already been registered" against the
+  shared singleton. A local registry per instance makes every one of
+  those independently constructible with zero cross-test interference —
+  verified directly: `metrics.service.spec.ts`'s own "two independent
+  instances never share state" test constructs two `MetricsService`s and
+  confirms neither sees the other's recorded data.
+- **Decision — label HTTP metrics by the matched Express ROUTE PATTERN,
+  never the raw request path:** `resolveRouteLabel()`
+  (`http-logging.middleware.ts`) reads `req.route?.path`
+  (`/api/v1/orders/:id`), falling back to a fixed `'unmatched'` string
+  for a request that matched no route at all (a 404), rather than the
+  raw path in either case.
+- **Why:** labeling by raw path (`/api/v1/orders/a1b2c3...`, one series
+  per real order id — or worse, one series per RANDOM PATH an attacker
+  probes against a 404) is Prometheus's own documented anti-pattern:
+  unbounded label cardinality that grows forever and can exhaust a real
+  Prometheus server's memory over time. `req.route` is populated by
+  Express's own router once a request matches a registered route; by the
+  time `HttpLoggingMiddleware`'s `res.on('finish', ...)` handler fires
+  (after the full request/response cycle, including controller
+  execution), it's reliably set for every successfully-routed request.
+  Live-verified against a real compiled server: a random unmatched path
+  produced `http_requests_total{method="GET",route="unmatched",
+  status_code="404"} 1` — the probed path itself never appeared as a
+  label value anywhere in the scrape output.
+- **Decision — `METRICS_TOKEN` production-safety check is the INVERSE
+  shape of `SWAGGER_ENABLED`'s own check:** Swagger's rule is "must be
+  disabled in production unless explicitly re-enabled" (a full API-shape
+  dump is worth disabling by default); metrics' rule is "must be
+  protected by a token once enabled in production" (`METRICS_ENABLED`
+  stays true by default — that's the whole point of a scrape endpoint —
+  but an unprotected one discloses real per-route request-rate/latency/
+  error-rate data). `env.validation.ts`'s new `superRefine` check
+  enforces this at startup, the same "fail before anything starts
+  listening" property every other production-safety check there already
+  has.
+- **Alerting (PagerDuty/Opsgenie/Slack/webhook dispatch) and Grafana
+  dashboards deliberately NOT built, despite being named in Module 6's
+  own brief.** Audited first: zero alerting integration exists anywhere
+  in this codebase, and — unlike `SENTRY_DSN`/`OTEL_EXPORTER_OTLP_ENDPOINT`
+  (Module 5's own deferred items, at least documented as blank
+  placeholders) — not even a placeholder env var exists for an alert
+  destination. Building real dispatch logic with no configured
+  destination to send to, or verify against, would be speculative,
+  unverifiable infrastructure — the same "don't build ahead of a real,
+  checkable consumer" discipline this codebase already applies elsewhere
+  (e.g. `PerformanceLogger`/`AuditLoggerService` were built ahead of
+  their first caller, but as reusable, independently-testable utilities,
+  not as integrations against an unconfigured third party). Dashboards:
+  this dev sandbox has no Docker available at all (confirmed while
+  scoping this module), so a Prometheus/Grafana stack can't be stood up
+  or verified here — shipping dashboard JSON with no way to render it
+  against real scraped data would violate this session's own "verify
+  live, don't just trust the theory" discipline. `GET /metrics` is the
+  enabling foundation for both; building either without a real target to
+  verify against would be padding, not a genuine deliverable.
+- **A real doc-drift bug found and fixed along the way, unrelated to
+  this module's own new code:** `apps/api/src/logging/README.md` claimed
+  `PerformanceLogger` had "no current call site" — false since Milestone
+  12 (`DashboardService.overview()` already wraps itself in
+  `measureAsync()`), predating Phase 10 entirely. Module 5's own audit of
+  this same file repeated the stale claim without re-verifying it against
+  the actual codebase. Corrected as part of this module's own audit
+  discipline (verify claims against code, not against what a prior
+  doc/module already asserted).
+- **Affects:** `apps/api/package.json` (new `prom-client` dependency),
+  `apps/api/src/metrics/` (new — `metrics.module.ts`, `metrics.service.ts`,
+  `metrics.controller.ts`, `metrics.constant.ts`, specs, README.md),
+  `apps/api/src/config/monitoring/monitoring.config.ts` (new — the
+  folder's placeholder README updated, not replaced), `apps/api/src/config/
+  {env.validation.ts,env.validation.spec.ts,index.ts,config.module.ts}`,
+  `apps/api/src/bootstrap/api-routing.ts`, `apps/api/src/app.module.ts`,
+  `apps/api/src/common/middleware/{http-logging.middleware.ts,
+  http-logging.middleware.spec.ts}`, `apps/api/src/database/prisma.service.ts`,
+  `apps/api/src/jobs/{in-memory-dead-letter.store.ts,
+  in-memory-dead-letter.store.spec.ts,job-runner.service.spec.ts}`,
+  `apps/api/src/logging/README.md` (doc-drift fix), `apps/api/.env.example`,
+  `docs/architecture/operations.md` §11.
+
 <!-- Add new decisions above this line as you build. -->

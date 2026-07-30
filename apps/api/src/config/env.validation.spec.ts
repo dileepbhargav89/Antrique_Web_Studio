@@ -38,6 +38,7 @@ describe('validateEnv', () => {
       SWAGGER_ENABLED: true,
       SWAGGER_PATH: '/api/docs',
       HEALTH_PATH: '/health',
+      METRICS_ENABLED: true,
       JWT_ACCESS_TOKEN_TTL: 900,
       JWT_REFRESH_TOKEN_TTL: 2592000,
       HASH_MEMORY_COST: 19456,
@@ -255,6 +256,7 @@ describe('validateEnv', () => {
       NODE_ENV: 'production',
       DATABASE_SSL: 'true',
       SWAGGER_ENABLED: 'false',
+      METRICS_TOKEN: 'a-real-metrics-token',
     };
 
     it('accepts a fully-hardened production configuration', () => {
@@ -318,6 +320,28 @@ describe('validateEnv', () => {
         expect(message).toMatch(/DATABASE_SSL must be true in production/);
         expect(message).toMatch(/SWAGGER_ENABLED must be false in production/);
       }
+    });
+
+    // Phase 10, Module 6 (Monitoring).
+    it('rejects METRICS_ENABLED=true (the default) in production with no METRICS_TOKEN', () => {
+      const validateEnv = freshValidateEnv();
+      expect(() => validateEnv({ ...PROD_ENV, METRICS_TOKEN: undefined })).toThrow(
+        /METRICS_TOKEN must be set in production/,
+      );
+    });
+
+    it('accepts METRICS_ENABLED=true in production when METRICS_TOKEN is set', () => {
+      const validateEnv = freshValidateEnv();
+      expect(() =>
+        validateEnv({ ...PROD_ENV, METRICS_ENABLED: 'true', METRICS_TOKEN: 'a-real-token' }),
+      ).not.toThrow();
+    });
+
+    it('does not require METRICS_TOKEN in production when METRICS_ENABLED=false', () => {
+      const validateEnv = freshValidateEnv();
+      expect(() =>
+        validateEnv({ ...PROD_ENV, METRICS_ENABLED: 'false', METRICS_TOKEN: undefined }),
+      ).not.toThrow();
     });
   });
 });

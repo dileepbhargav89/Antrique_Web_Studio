@@ -3,7 +3,7 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints), and Module 5 (Observability) complete (`docs/architecture/operations.md` §10 — tenantId/userId now flow into every log line, sensitive-field redaction, process-level crash handlers, structured bootstrap/shutdown logs) — working through remaining modules sequentially, Module 6 (Monitoring) next**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints), Module 5 (Observability) complete (`docs/architecture/operations.md` §10 — tenantId/userId now flow into every log line, sensitive-field redaction, process-level crash handlers, structured bootstrap/shutdown logs), and Module 6 (Monitoring) complete (`docs/architecture/operations.md` §11 — real GET /metrics via prom-client, token-gated, cardinality-safe route labeling; alerting/dashboards/uptime-monitoring audited and deliberately deferred, no destination to build against) — working through remaining modules sequentially, Module 7 (Background Jobs) next**
 
 **Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
 (Email Assistant) was already fully built, tested, and wired in — module,
@@ -98,6 +98,42 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 6 (Monitoring) (`apps/api`)** — audited metrics
+  collection, a scrape endpoint, alerting, uptime/synthetic monitoring,
+  and dashboards (Module 5 already closed logging/tracing/correlation/
+  health/error-visibility — separate scope). Found this genuinely
+  greenfield: zero metrics library, zero `/metrics` endpoint, zero
+  alerting integration anywhere (not even a blank placeholder env var,
+  unlike `SENTRY_DSN`). Added `prom-client` + a new `GET /metrics`
+  (Prometheus exposition format) — default Node process metrics plus
+  `http_requests_total`/`http_request_duration_seconds` (labeled by the
+  matched ROUTE PATTERN, never the raw path — avoids the unbounded-
+  cardinality anti-pattern; a 404 against a random path labels as
+  `route="unmatched"`, confirmed live), `db_query_duration_seconds`
+  (fed by the existing Prisma slow-query hook), and
+  `jobs_dead_letter_queue_size` (a real gauge closing the exact gap
+  `operations.md` §8 already named by title). Gated by `METRICS_TOKEN` —
+  required in production once enabled (`env.validation.ts`'s new
+  superRefine check, the inverse shape of `SWAGGER_ENABLED`'s own
+  "must be off unless opted in" rule). `/metrics` stays unprefixed/
+  unversioned and excluded from Swagger — confirmed via a full
+  `openapi.json` diff: zero changes. Alerting/dashboards/uptime-
+  monitoring audited and deliberately deferred with documented
+  reasoning: no alerting destination configured anywhere in this
+  codebase (not even a placeholder), and no Docker available in this
+  dev sandbox to stand up or verify a Prometheus/Grafana stack against.
+  Also fixed a real doc-drift bug found along the way:
+  `logging/README.md` claimed `PerformanceLogger` had "no current call
+  site," false since Milestone 12 (`DashboardService.overview()`
+  already uses it) — Module 5's own audit had repeated the stale claim
+  without re-verifying it. Live-verified against a real compiled
+  server: DB-query metric incremented from a real health-check query,
+  dead-letter gauge read 0, HTTP metrics correctly distinguished
+  matched vs. unmatched routes, and all three `METRICS_TOKEN`
+  authorization paths (missing/wrong/correct) returned the expected
+  status codes. `pnpm --filter @antrique/api typecheck`/`lint` clean;
+  full suite 190 suites/1168 tests, all passing. Full writeup:
+  `docs/architecture/operations.md` §11.
 - **Phase 10, Module 5 (Observability) (`apps/api`)** — audited logging/
   tracing/correlation/health/error-visibility (Module 6, separate, covers
   metrics/alerting/dashboards). Found structured JSON logging, request
@@ -4421,30 +4457,37 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. **DONE (2026-07-30):** Phase 10, Modules 1-5 (API Performance,
+1. **DONE (2026-07-30):** Phase 10, Modules 1-6 (API Performance,
    Frontend Performance, Security Hardening, Authentication & Session
-   Security, Observability) — see this file's own newest log entries,
-   `docs/architecture/performance.md` §10, `docs/architecture/
+   Security, Observability, Monitoring) — see this file's own newest log
+   entries, `docs/architecture/performance.md` §10, `docs/architecture/
    frontend.md`'s Module 2 section, `docs/architecture/security.md`
-   §16-§17, and `docs/architecture/operations.md` §10 for full writeups.
-   Module 3 closed the RLS `SET LOCAL` gap flagged in Module 1 (see
-   blockers.md's now-resolved entry) and caught/fixed a real blank-app
-   CSP regression via live browser verification. Module 4 closed the
-   stateless-refresh-token gap `security.md` §13 had flagged since
-   Milestone 13 (real session-backed rotation, reuse detection, account
-   lockout, concurrent-session limits) and caught/fixed a real
+   §16-§17, and `docs/architecture/operations.md` §10-§11 for full
+   writeups. Module 3 closed the RLS `SET LOCAL` gap flagged in Module 1
+   (see blockers.md's now-resolved entry) and caught/fixed a real
+   blank-app CSP regression via live browser verification. Module 4
+   closed the stateless-refresh-token gap `security.md` §13 had flagged
+   since Milestone 13 (real session-backed rotation, reuse detection,
+   account lockout, concurrent-session limits) and caught/fixed a real
    stale-placeholder-response bug (`LogoutResponseDto`) via live server
    testing. Module 5 closed the tenantId/userId-missing-from-logs gap,
    added redaction and process-level crash handlers, and — while fixing
    the ripple effect of `JwtAuthGuard`'s new constructor dependency —
    found and fixed 37 test suites broken by it (a source-level grep
-   cross-reference, not a guess, confirmed the exact count). User has
-   directed working through Phase 10's remaining 10 modules sequentially
-   (complete one, move to the next, no per-module check-in needed):
-   monitoring, background jobs, caching, DB reliability, CI/CD,
-   Docker/infra, testing, docs, tech debt, readiness report (full spec
-   from the user, not yet copied into its own doc) — **Module 6
-   (Monitoring) is next**.
+   cross-reference, not a guess, confirmed the exact count). Module 6
+   added a real `GET /metrics` (Prometheus, `prom-client`), gated by
+   `METRICS_TOKEN`, cardinality-safe route labeling (live-verified: a
+   404 against a random path labels `route="unmatched"`, never the raw
+   path), and deliberately deferred alerting/dashboards/uptime-
+   monitoring — audited first, no destination configured anywhere in
+   this codebase to build real dispatch logic against, no Docker
+   available in this dev sandbox to verify a Grafana/Prometheus stack.
+   User has directed working through Phase 10's remaining 9 modules
+   sequentially (complete one, move to the next, no per-module check-in
+   needed): background jobs, caching, DB reliability, CI/CD, Docker/
+   infra, testing, docs, tech debt, readiness report (full spec from the
+   user, not yet copied into its own doc) — **Module 7 (Background
+   Jobs) is next**.
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

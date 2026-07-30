@@ -4,7 +4,8 @@ import { z } from 'zod';
 // docs/architecture/validation.md for the full rationale and lifecycle.
 // Only variables the implemented config layer actually reads are
 // validated here (app, database, security, logging, swagger, health,
-// cache, queue, email, storage — see each domain's registerAs() factory).
+// monitoring, cache, queue, email, storage — see each domain's
+// registerAs() factory).
 // Everything else in .env.example (IDP_*, JWT_* beyond what's already
 // listed below, PAYMENT_*, SENTRY_DSN, OTEL_*) belongs to a config domain
 // that's still a placeholder (apps/api/src/config/*/README.md) — nothing
@@ -97,6 +98,17 @@ const envSchema = z.object({
 
   // health — config only; no health-check controller is wired up yet
   HEALTH_PATH: z.string().min(1).default('/health'),
+
+  // monitoring (Phase 10, Module 6) — GET /metrics (Prometheus exposition
+  // format). METRICS_ENABLED defaults true, same "on by default, opt out"
+  // treatment SWAGGER_ENABLED gets — a scrape endpoint with no request
+  // body/DTO schemas to leak is a much narrower disclosure surface than
+  // Swagger's full API-shape dump, so it doesn't need Swagger's
+  // opt-BACK-in-for-production pattern; it needs the opposite cross-field
+  // check instead — see the superRefine below. METRICS_TOKEN is optional
+  // here (required only in production, when enabled — same superRefine).
+  METRICS_ENABLED: booleanFromString('true'),
+  METRICS_TOKEN: z.string().optional(),
 
   // cache / queue — same Redis instance, two distinct config namespaces
   // (see configuration.md's cache/queue split rationale). Required, no
@@ -310,6 +322,24 @@ const envSchemaWithProductionSafety = envSchema.superRefine((data, ctx) => {
       message:
         'JWT_REFRESH_SECRET is still the placeholder value from .env.example — generate a real ' +
         'secret (e.g. `openssl rand -base64 48`) before deploying to production.',
+    });
+  }
+
+  // Phase 10, Module 6 (Monitoring) — the inverse of SWAGGER_ENABLED's own
+  // check above: metrics SHOULD stay enabled in production (that's the
+  // point of a scrape endpoint), so the safety gate isn't "must be
+  // disabled unless opted in," it's "must be protected by a real token
+  // once it's on." An open /metrics endpoint discloses request-rate/
+  // latency/error-rate data per route — real operational intelligence
+  // about the deployment, even though it's not the same class of leak as
+  // Swagger's full DTO-shape dump.
+  if (data.METRICS_ENABLED && !data.METRICS_TOKEN) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['METRICS_TOKEN'],
+      message:
+        'METRICS_TOKEN must be set in production when METRICS_ENABLED is true — GET /metrics ' +
+        'would otherwise be publicly readable with no authentication.',
     });
   }
 });

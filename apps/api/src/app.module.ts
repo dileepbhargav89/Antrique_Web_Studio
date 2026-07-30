@@ -23,6 +23,7 @@ import { CrmModule } from './modules/crm/crm.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './health/health.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { JobsModule } from './jobs/jobs.module';
 import { EmailModule } from './email/email.module';
 import { StorageModule } from './storage/storage.module';
@@ -161,6 +162,15 @@ import { FinanceModule } from './modules/finance/finance.module';
     // unprefixed (see health/health.controller.ts). Not @Global(); its one
     // dependency, PrismaService, already is.
     HealthModule,
+    // Metrics collection (Phase 10, Module 6 — Monitoring) — GET /metrics
+    // (Prometheus exposition format). @Global(), same precedent as
+    // TokenModule/PasswordModule/CacheModule/JobsModule — HttpLoggingMiddleware
+    // (this module's own providers, below) and PrismaService/
+    // InMemoryDeadLetterStore (DatabaseModule/JobsModule) all consume
+    // MetricsService without importing this module themselves. Registered
+    // ahead of JobsModule below, one of its consumers. See
+    // metrics/README.md.
+    MetricsModule,
     // Background job infrastructure (Milestone 14) — Job/JobRunner/retry/
     // dead-letter abstractions only, zero real scheduled jobs, zero Redis/
     // queue backend. See jobs/README.md.

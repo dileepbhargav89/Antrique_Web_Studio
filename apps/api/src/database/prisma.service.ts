@@ -5,6 +5,7 @@ import { PrismaClient, Prisma } from '../../generated/prisma/client';
 import databaseConfig from '../config/database/database.config';
 import { LOGGER, Logger } from '../logging';
 import { TenantRlsContextService } from './tenant-rls-context.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 // Milestone 12 (Performance Engineering) — "database duration"/"slow
 // query logging." A query taking longer than this is unusual enough on
@@ -83,6 +84,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     @Inject(LOGGER)
     private readonly logger: Logger,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly metrics: MetricsService,
   ) {
     super({
       // Phase 10, Module 1 (Performance) — `max`/`idleTimeoutMillis`/
@@ -308,6 +310,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       if (event.duration > SLOW_QUERY_THRESHOLD_MS) {
         this.logger.warn('Slow database query', metadata);
       }
+      // Phase 10, Module 6 (Monitoring) — the exact same `event.duration`
+      // already logged above, additionally recorded as a metric. See
+      // `MetricsService`'s own comment for why this is unlabeled (no
+      // per-model/per-route breakdown — not cheaply available at this
+      // call site).
+      this.metrics.recordDbQuery(event.duration);
     });
   }
 

@@ -47,10 +47,13 @@ not a replacement. Every unhandled exception now also produces one
 (Phase 1.2C.6, outside this folder) — the same `LOGGER`, the same
 automatic context merge, zero new wiring in this folder. `PerformanceLogger`
 (Phase 1.2C.7) adds `startTimer`/`endTimer`/`measure`/`measureAsync` for
-timing arbitrary operations — a reusable, DI-injectable utility with no
-current call site (no controller/repository instrumentation, no
-decorators/interceptors — all explicitly out of scope), same as every
-logging capability before its first real consumer arrived. `AuditLoggerService`
+timing arbitrary operations — a reusable, DI-injectable utility. Went
+uncalled through Phase 10, Module 5's own audit of this folder; that
+audit was wrong to call it zero-call-site — `DashboardService.overview()`
+(Milestone 12, predates Phase 10) had already wrapped itself in
+`measureAsync()`, one real call site, log-only (not aggregated into any
+counter/histogram — see Phase 10, Module 6's own metrics work,
+`apps/api/src/metrics/`, for the aggregated equivalent). `AuditLoggerService`
 (Phase 1.2C.8) is now bound to `AUDIT_LOGGER` — foundation only, no
 business module calls `.log()` yet, same "capability before consumer"
 pattern. Still no third-party logging library, no multiple transports,
@@ -300,10 +303,12 @@ service.ts` actually needs), per "Future roadmap" below.
   in `common/middleware/http-logging.middleware.ts` (Phase 1.2C.5),
   outside this folder, which imports `RequestContextService` from the
   public barrel exactly as anticipated.
-- `PerformanceLogger` and `AuditLoggerService` both have no current
-  business-module consumer — reusable capabilities built ahead of their
-  first real caller, exactly like `RequestContextService` was between
-  Phase 1.2C.4 and 1.2C.5.
+- `AuditLoggerService` has real call sites since Milestone 13
+  (`auth.service.ts`, `permissions.guard.ts`, `roles.guard.ts`).
+  `PerformanceLogger` has exactly one (`DashboardService.overview()`,
+  Milestone 12) — both reusable capabilities built ahead of their first
+  real caller, exactly like `RequestContextService` was between Phase
+  1.2C.4 and 1.2C.5, just no longer callerless today.
 
 ## Dependency boundaries
 

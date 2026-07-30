@@ -6,6 +6,7 @@ import securityConfig from './security/security.config';
 import loggingConfig from './logging/logging.config';
 import swaggerConfig from './swagger/swagger.config';
 import healthConfig from './health/health.config';
+import monitoringConfig from './monitoring/monitoring.config';
 import cacheConfig from './cache/cache.config';
 import queueConfig from './queue/queue.config';
 import emailConfig from './email/email.config';
@@ -34,6 +35,7 @@ const CONFIG_NAMESPACES = [
   'logging',
   'swagger',
   'health',
+  'monitoring',
   'cache',
   'queue',
   'email',
@@ -71,6 +73,7 @@ assertNoDuplicateConfigNamespaces(CONFIG_NAMESPACES);
         loggingConfig,
         swaggerConfig,
         healthConfig,
+        monitoringConfig,
         cacheConfig,
         queueConfig,
         emailConfig,

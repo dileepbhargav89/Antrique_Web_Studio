@@ -1,5 +1,6 @@
 import { HttpLoggingMiddleware } from './http-logging.middleware';
 import { Logger, RequestContext, RequestContextService } from '../../logging';
+import { MetricsService } from '../../metrics/metrics.service';
 import { Request, Response } from 'express';
 
 describe('HttpLoggingMiddleware', () => {
@@ -19,9 +20,16 @@ describe('HttpLoggingMiddleware', () => {
     trace: jest.fn(),
   });
 
-  const makeMiddleware = (logger: Logger, requestContext = new RequestContextService()) => {
-    const middleware = new HttpLoggingMiddleware(logger, requestContext);
-    return { middleware, requestContext };
+  // Phase 10, Module 6 (Monitoring) — a real MetricsService, not a mock:
+  // its own local Registry (see that class's own comment) makes it cheap
+  // and safe to construct fresh per test.
+  const makeMiddleware = (
+    logger: Logger,
+    requestContext = new RequestContextService(),
+    metrics = new MetricsService(),
+  ) => {
+    const middleware = new HttpLoggingMiddleware(logger, requestContext, metrics);
+    return { middleware, requestContext, metrics };
   };
 
   // A fake Response whose 'finish' listener fires via a genuine async
@@ -282,6 +290,53 @@ describe('HttpLoggingMiddleware', () => {
 
       expect(logger.warn).not.toHaveBeenCalled();
       hrtimeSpy.mockRestore();
+    });
+  });
+
+  // Phase 10, Module 6 (Monitoring).
+  describe('metrics recording', () => {
+    it('records http_requests_total/http_request_duration_seconds using the matched route pattern', async () => {
+      const { middleware, metrics } = makeMiddleware(makeLogger());
+      const { res, finished } = makeRes(200);
+
+      middleware.use(
+        makeReq({
+          method: 'GET',
+          path: '/api/v1/widgets/abc123',
+          route: { path: '/api/v1/widgets/:id' },
+        } as unknown as Partial<Request>),
+        res,
+        jest.fn(),
+      );
+      await finished;
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain(
+        'http_requests_total{method="GET",route="/api/v1/widgets/:id",status_code="200"} 1',
+      );
+      // The raw path (with the real id in it) must never appear as a
+      // label value — that would be the unbounded-cardinality anti-
+      // pattern this middleware's own resolveRouteLabel() comment warns
+      // against.
+      expect(text).not.toContain('route="/api/v1/widgets/abc123"');
+    });
+
+    it('labels an unmatched request (404 — no req.route) as "unmatched", not the raw path', async () => {
+      const { middleware, metrics } = makeMiddleware(makeLogger());
+      const { res, finished } = makeRes(404);
+
+      middleware.use(
+        makeReq({ method: 'GET', path: '/api/v1/does-not-exist' } as Partial<Request>),
+        res,
+        jest.fn(),
+      );
+      await finished;
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain(
+        'http_requests_total{method="GET",route="unmatched",status_code="404"} 1',
+      );
+      expect(text).not.toContain('route="/api/v1/does-not-exist"');
     });
   });
 

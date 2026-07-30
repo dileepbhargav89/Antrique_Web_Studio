@@ -254,3 +254,77 @@ Module 5 entry. Summary for operational purposes:
   checks PostgreSQL only, and that's correct: the cache module
   (`apps/api/src/cache/`) is in-process/in-memory, not a real Redis
   dependency, so there is no second external dependency to check yet.
+
+## 11. Phase 10, Module 6 — Monitoring (2026-07-30)
+
+Audited metrics collection, a scrape endpoint, alerting, uptime/synthetic
+monitoring, and dashboards (logging/tracing/correlation/health/error-
+visibility are Module 5 — Observability, closed already, separate scope).
+Found this was genuinely greenfield: zero metrics library, zero
+`/metrics` endpoint, zero alerting integration (not even a blank
+placeholder env var, unlike `SENTRY_DSN`), zero uptime-monitoring
+mention anywhere in the deploy-facing docs. Full account:
+`apps/api/src/metrics/README.md` and `docs/implementation/decisions.md`'s
+2026-07-30 Module 6 entry.
+
+- **`GET /metrics`, Prometheus exposition format, is real.** `prom-client`
+  (new dependency) backs a `MetricsService` with default Node process
+  metrics plus three app-specific ones: `http_requests_total`/
+  `http_request_duration_seconds` (labeled by the matched ROUTE PATTERN,
+  never the raw path with real ids — unbounded label cardinality is a
+  real Prometheus failure mode this deliberately avoids, confirmed live:
+  a 404 against a random path is labeled `route="unmatched"`, not the
+  probed path itself), `db_query_duration_seconds` (unlabeled aggregate,
+  fed by the same Prisma query-event hook that already powers the
+  existing slow-query log line), and `jobs_dead_letter_queue_size` (a
+  real gauge for the gap this document's own §8 already named by title —
+  reads 0 today since zero jobs run, ready for whenever Module 7 changes
+  that).
+- **Gated by `METRICS_TOKEN`** (`Authorization: Bearer <token>`, matching
+  Prometheus's own stock `bearer_token` scrape-config option) — unset by
+  default for local dev convenience; `env.validation.ts`'s own
+  production-safety check requires it once `METRICS_ENABLED` (default
+  true) reaches production, the inverse shape of `SWAGGER_ENABLED`'s own
+  check (metrics should stay ON in production; the gate is "must be
+  protected," not "must be off"). Live-verified: no header → 401, wrong
+  token → 401, correct `Bearer <token>` → 200.
+- **`/metrics` stays unprefixed/unversioned** (`bootstrap/api-routing.ts`'s
+  `exclude` list, same treatment `/health/*` already gets) and excluded
+  from Swagger (`@ApiExcludeController()`) — confirmed via a full
+  `openapi.json` diff: zero changes from this module, not even additive
+  ones, since this is a scrape endpoint for infrastructure, not an API
+  surface consumers document against.
+- **Alerting, uptime/synthetic monitoring, and Grafana dashboards
+  deliberately NOT built.** No alerting destination is configured
+  anywhere in this codebase — not PagerDuty, not Opsgenie, not a Slack
+  webhook, not even a blank placeholder env var the way `SENTRY_DSN`
+  exists as an acknowledged-but-unbuilt promise. Building real dispatch
+  logic with nothing to send to would be speculative, unverifiable
+  infrastructure. Dashboards: no Prometheus/Grafana stack is
+  deployable in this project's own dev sandbox (no Docker available
+  here), so shipping dashboard JSON with no way to render or validate it
+  against real scraped data isn't a genuine deliverable — `GET /metrics`
+  is the enabling foundation for whenever that stack exists. Uptime
+  monitoring is a deploy-topology concern (an external service polling
+  `GET /health/live`), not application code — nothing to build.
+- **A doc-drift bug found and fixed along the way**:
+  `apps/api/src/logging/README.md` claimed `PerformanceLogger` had "no
+  current call site" — false since Milestone 12, when
+  `DashboardService.overview()` wrapped itself in `measureAsync()`; the
+  claim was never re-verified when Module 5 touched this same file.
+  Corrected.
+
+### Validation
+
+`pnpm --filter @antrique/api typecheck`/`lint` clean. Full suite: 190
+suites, 1168 tests, all passing (auth/http-logging/jobs suites updated
+for the new `MetricsService` constructor dependency the same ripple-
+effect class Module 5 hit with `JwtAuthGuard`, caught immediately this
+time by writing the dependent specs alongside the source change rather
+than after). Live-verified against a real compiled server: `db_query_duration_seconds_count`
+incremented from a real health-check query, `jobs_dead_letter_queue_size`
+read 0, `http_requests_total` correctly distinguished a matched route
+(`/health/live`, `/api/v1/auth/login`) from an unmatched one
+(`route="unmatched"` for a 404), and all three `METRICS_TOKEN`
+authorization paths (missing/wrong/correct) returned the expected status
+codes.

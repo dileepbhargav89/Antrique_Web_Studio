@@ -16,6 +16,7 @@ export { default as securityConfig } from './security/security.config';
 export { default as loggingConfig } from './logging/logging.config';
 export { default as swaggerConfig } from './swagger/swagger.config';
 export { default as healthConfig } from './health/health.config';
+export { default as monitoringConfig } from './monitoring/monitoring.config';
 export { default as cacheConfig } from './cache/cache.config';
 export { default as queueConfig } from './queue/queue.config';
 export { default as emailConfig } from './email/email.config';

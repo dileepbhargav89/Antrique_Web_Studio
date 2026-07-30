@@ -2,6 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { LOGGER, Logger, RequestContext, RequestContextService } from '../../logging';
+import { MetricsService } from '../../metrics/metrics.service';
+
+// Phase 10, Module 6 (Monitoring) — the matched Express ROUTE PATTERN
+// (`/api/v1/orders/:id`), never the raw request path with real ids
+// interpolated in (`/api/v1/orders/a1b2c3...`). `req.route` is populated
+// by Express's own router once a request actually matches a registered
+// route — by the time this fires (inside the `res.on('finish', ...)`
+// handler below, after the full request/response cycle including
+// controller execution), it's set for every successfully-routed request.
+// A request that matches NOTHING (a 404 — no controller ever handled it)
+// gets a fixed `'unmatched'` label instead of the raw path — labeling
+// 404s by their raw path would let an attacker probing random paths
+// generate unbounded label cardinality in a real Prometheus server, the
+// exact anti-pattern `MetricsService`'s own comment warns about for this
+// same reason.
+function resolveRouteLabel(req: Request): string {
+  return req.route?.path ? String(req.route.path) : 'unmatched';
+}
 
 // Milestone 12 (Performance Engineering) — "slow request logging." Same
 // rough magnitude as PrismaService's own SLOW_QUERY_THRESHOLD_MS (100ms)
@@ -31,6 +49,7 @@ export class HttpLoggingMiddleware implements NestMiddleware {
   constructor(
     @Inject(LOGGER) private readonly logger: Logger,
     private readonly requestContext: RequestContextService,
+    private readonly metrics: MetricsService,
   ) {}
 
   use(req: Request, res: Response, next: NextFunction): void {
@@ -87,6 +106,19 @@ export class HttpLoggingMiddleware implements NestMiddleware {
         if (durationMs > SLOW_REQUEST_THRESHOLD_MS) {
           this.logger.warn('Slow HTTP request', metadata);
         }
+
+        // Phase 10, Module 6 (Monitoring) — the exact same `durationMs`/
+        // `statusCode` already computed above, additionally recorded as
+        // a metric (queryable percentiles/rates over time via
+        // GET /metrics), not a replacement for the log lines above,
+        // which stay the per-event, grep-one-incident record — see
+        // `docs/architecture/operations.md`'s Module 6 entry.
+        this.metrics.recordHttpRequest(
+          req.method,
+          resolveRouteLabel(req),
+          res.statusCode,
+          durationMs,
+        );
       });
 
       next();
