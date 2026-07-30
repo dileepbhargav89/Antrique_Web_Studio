@@ -131,9 +131,11 @@ describe('ProductImageService', () => {
       );
 
       expect(scanSpy).toHaveBeenCalledWith(IMAGE_BUFFER);
-      expect(scanSpy.mock.invocationCallOrder[0]).toBeLessThan(
-        (storageService.upload as jest.Mock).mock.invocationCallOrder[0],
-      );
+      const scanOrder = scanSpy.mock.invocationCallOrder[0];
+      const uploadOrder = (storageService.upload as jest.Mock).mock.invocationCallOrder[0];
+      expect(scanOrder).toBeDefined();
+      expect(uploadOrder).toBeDefined();
+      expect(scanOrder as number).toBeLessThan(uploadOrder as number);
     });
 
     it('creates the ProductImage row with the storage URL and returns the mapped response', async () => {
