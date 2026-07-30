@@ -38,13 +38,18 @@ import {
   InvoiceStatus,
   LeadStatus,
   MeasurementUnit,
+  MilestoneStatus,
   NotificationChannel,
   NotificationStatus,
   OrderStatus,
   PaymentStatus,
   PricingAdjustmentType,
   ProductStatus,
+  ProjectMemberRole,
   ProjectStatus,
+  PromptCategory,
+  TaskPriority,
+  TaskStatus,
   ReportType,
   ReservationStatus,
   StyleOptionStatus,
@@ -106,6 +111,35 @@ const LEAD_LOST_ID = '00000000-0000-7000-8000-000000000204';
 const PROJECT_SAFFRON_ID = '00000000-0000-7000-8000-000000000301';
 const PROJECT_KESTREL_ID = '00000000-0000-7000-8000-000000000302';
 const PROJECT_MERIDIAN_ID = '00000000-0000-7000-8000-000000000303';
+
+// Phase 7 (Project/Task/Milestone) — demonstrates the module against the
+// Saffron/Kestrel projects already seeded above (ProjectMember has a
+// composite PK, no fixed id needed).
+const MILESTONE_SAFFRON_DISCOVERY_ID = '00000000-0000-7000-8000-000000000311';
+const MILESTONE_SAFFRON_DESIGN_ID = '00000000-0000-7000-8000-000000000312';
+const MILESTONE_KESTREL_LAUNCH_ID = '00000000-0000-7000-8000-000000000313';
+
+const TASK_SAFFRON_WIREFRAMES_ID = '00000000-0000-7000-8000-000000000321';
+const TASK_SAFFRON_DESIGN_REVIEW_ID = '00000000-0000-7000-8000-000000000322';
+const TASK_KESTREL_COPY_ID = '00000000-0000-7000-8000-000000000323';
+const TASK_KESTREL_SEO_AUDIT_ID = '00000000-0000-7000-8000-000000000324';
+
+// Phase 8 (AI Workspace, Step 2) — one real template per PromptCategory
+// value, the same "every enum value gets a real seeded example" treatment
+// LeadSource/NotificationTemplate already follow.
+const PROMPT_TEMPLATE_PROPOSAL_ID = '00000000-0000-7000-8000-000000000331';
+const PROMPT_TEMPLATE_REQUIREMENT_ANALYSIS_ID = '00000000-0000-7000-8000-000000000332';
+const PROMPT_TEMPLATE_WEBSITE_AUDIT_ID = '00000000-0000-7000-8000-000000000333';
+const PROMPT_TEMPLATE_SEO_ID = '00000000-0000-7000-8000-000000000334';
+const PROMPT_TEMPLATE_CLIENT_EMAIL_ID = '00000000-0000-7000-8000-000000000335';
+const PROMPT_TEMPLATE_MEETING_SUMMARY_ID = '00000000-0000-7000-8000-000000000336';
+const PROMPT_TEMPLATE_SCOPE_ID = '00000000-0000-7000-8000-000000000337';
+const PROMPT_TEMPLATE_ESTIMATION_ID = '00000000-0000-7000-8000-000000000338';
+const PROMPT_TEMPLATE_RISK_ANALYSIS_ID = '00000000-0000-7000-8000-000000000339';
+// Phase 8, Step 6 — added after Steps 1-2's original 9 templates.
+const PROMPT_TEMPLATE_TASK_GENERATION_ID = '00000000-0000-7000-8000-000000000340';
+// Phase 8, Step 7.
+const PROMPT_TEMPLATE_CONTENT_GENERATION_ID = '00000000-0000-7000-8000-000000000341';
 
 // Milestone 5 (Product Catalog Foundation) — no product-catalog guidance
 // exists in docs/product/ (checked; flagged in schema.prisma's own
@@ -340,6 +374,70 @@ const PERMISSIONS: Array<{ key: string; resource: string; action: string; descri
     resource: 'documents',
     action: 'write',
     description: 'Upload or edit project documents',
+  },
+  // Phase 7 (Project/Task/Milestone) — same "Manager, Project Manager"
+  // tier as milestones:write/tasks:write; not granted to client/customer
+  // (see permission.constant.ts's own comment on COMMENTS_READ).
+  {
+    key: 'comments:read',
+    resource: 'comments',
+    action: 'read',
+    description: 'View comments on tasks and milestones',
+  },
+  {
+    key: 'comments:write',
+    resource: 'comments',
+    action: 'write',
+    description: 'Create comments on tasks and milestones',
+  },
+  // Phase 8 (AI Workspace, Step 2) — same "Manager, Project Manager" tier
+  // as comments:*/milestones:write (see permission.constant.ts's own
+  // comment on why both stay restricted rather than opened to sales/client).
+  {
+    key: 'prompt_templates:read',
+    resource: 'prompt_templates',
+    action: 'read',
+    description: 'View AI prompt templates',
+  },
+  {
+    key: 'prompt_templates:write',
+    resource: 'prompt_templates',
+    action: 'write',
+    description: 'Create, edit, render, or test-run AI prompt templates',
+  },
+  // Phase 8, Step 7 (AI Content Assistant) — same "Manager, Project
+  // Manager" tier as prompt_templates:*. Unlike every other Phase 8
+  // feature, this one's own spec explicitly persists output ("Store
+  // drafts only"), so it's a real resource with its own read/write/delete
+  // tiers rather than reusing prompt_templates:* — same "new key when a
+  // new resource appears" discipline milestones:*/tasks:*/comments:*
+  // already followed for Phase 7.
+  {
+    key: 'content_drafts:read',
+    resource: 'content_drafts',
+    action: 'read',
+    description: 'View AI-generated content drafts',
+  },
+  {
+    key: 'content_drafts:write',
+    resource: 'content_drafts',
+    action: 'write',
+    description: 'Generate or edit AI content drafts',
+  },
+  {
+    key: 'content_drafts:delete',
+    resource: 'content_drafts',
+    action: 'delete',
+    description: 'Discard AI content drafts',
+  },
+  // Phase 8, Step 8 (AI Email Assistant) — see permission.constant.ts's
+  // own comment on why `send` is a single-action tier, not a resource
+  // triad.
+  {
+    key: 'emails:send',
+    resource: 'emails',
+    action: 'send',
+    description: 'Send AI-drafted emails to clients/leads via the live email provider',
   },
   { key: 'leads:read', resource: 'leads', action: 'read', description: 'View CRM leads' },
   {
@@ -827,6 +925,22 @@ const PERMISSIONS: Array<{ key: string; resource: string; action: string; descri
     action: 'delete',
     description: 'Delete tax rates',
   },
+  // Phase 9, Module 1, Step 1 (Enterprise Operations Suite — Finance:
+  // Vendor Management) — mirrors `clients:read`/`clients:write`'s own
+  // tier exactly, no delete key (Vendor archives via the ordinary update
+  // route's `status` field, same reasoning `Client` gives).
+  {
+    key: 'vendors:read',
+    resource: 'vendors',
+    action: 'read',
+    description: 'View vendors',
+  },
+  {
+    key: 'vendors:write',
+    resource: 'vendors',
+    action: 'write',
+    description: 'Create or edit vendors',
+  },
 ];
 
 // Milestone 3 (Role & Permission Foundation) added `super_admin`,
@@ -877,10 +991,19 @@ const ROLES: Array<{ key: string; name: string; description: string; permissionK
       'tasks:write',
       'documents:read',
       'documents:write',
+      'comments:read',
+      'comments:write',
+      'prompt_templates:read',
+      'prompt_templates:write',
+      'content_drafts:read',
+      'content_drafts:write',
+      'content_drafts:delete',
+      'emails:send',
       'leads:read',
       'clients:read',
       'quotations:read',
       'invoices:read',
+      'vendors:read',
       'notifications:read',
     ],
   },
@@ -932,7 +1055,8 @@ const ROLES: Array<{ key: string; name: string; description: string; permissionK
       'Super Admin" tier for all three) — no audit_logs:read, this milestone\'s own explicit ' +
       '"Admin, Super Admin" only tier (Manager was never granted it). Milestone 14 added ' +
       'system:read under the same "Admin, Super Admin" only tier — Manager was never granted ' +
-      'that one either.',
+      'that one either. Phase 9, Module 1, Step 1 added vendors:read+write, same tier as ' +
+      'clients:read+write.',
     permissionKeys: [
       'projects:read',
       'projects:write',
@@ -942,12 +1066,24 @@ const ROLES: Array<{ key: string; name: string; description: string; permissionK
       'tasks:write',
       'documents:read',
       'documents:write',
+      'comments:read',
+      'comments:write',
+      'prompt_templates:read',
+      'prompt_templates:write',
+      'content_drafts:read',
+      'content_drafts:write',
+      'content_drafts:delete',
+      'emails:send',
       'leads:read',
       'leads:write',
       'clients:read',
+      'clients:write',
       'quotations:read',
+      'quotations:write',
       'invoices:read',
       'invoices:write',
+      'vendors:read',
+      'vendors:write',
       'notifications:read',
       'categories:read',
       'categories:write',
@@ -1379,6 +1515,302 @@ async function main() {
       ];
       for (const p of PROJECTS) {
         await tx.project.upsert({
+          where: { id: p.id },
+          update: { ...p, tenantId: tenant.id },
+          create: { ...p, tenantId: tenant.id },
+        });
+      }
+
+      // Phase 7 (Project/Task/Milestone) — real ProjectMember/Milestone/
+      // Task rows against the Saffron/Kestrel projects seeded above, the
+      // same "not just a stub" treatment every prior milestone's seed data
+      // gets. `managerUser`/`adminUser` reused from TEST_USERS above
+      // rather than re-declared — same lookup shape `customerUser` (below,
+      // Milestone 6) already uses.
+      const managerUser = await tx.user.findFirst({
+        where: { tenantId: tenant.id, email: 'manager@antrique.dev', deletedAt: null },
+      });
+      const adminUser = await tx.user.findFirst({
+        where: { tenantId: tenant.id, email: 'admin@antrique.dev', deletedAt: null },
+      });
+
+      if (managerUser) {
+        await tx.projectMember.upsert({
+          where: { projectId_userId: { projectId: PROJECT_SAFFRON_ID, userId: managerUser.id } },
+          update: { role: ProjectMemberRole.OWNER },
+          create: {
+            tenantId: tenant.id,
+            projectId: PROJECT_SAFFRON_ID,
+            userId: managerUser.id,
+            role: ProjectMemberRole.OWNER,
+          },
+        });
+      }
+      if (adminUser) {
+        await tx.projectMember.upsert({
+          where: { projectId_userId: { projectId: PROJECT_KESTREL_ID, userId: adminUser.id } },
+          update: { role: ProjectMemberRole.MANAGER },
+          create: {
+            tenantId: tenant.id,
+            projectId: PROJECT_KESTREL_ID,
+            userId: adminUser.id,
+            role: ProjectMemberRole.MANAGER,
+          },
+        });
+      }
+
+      const MILESTONES = [
+        {
+          id: MILESTONE_SAFFRON_DISCOVERY_ID,
+          projectId: PROJECT_SAFFRON_ID,
+          title: 'Discovery & Wireframes',
+          description: 'Stakeholder interviews, sitemap, and low-fidelity wireframes.',
+          status: MilestoneStatus.APPROVED,
+          completedAt: new Date('2026-07-10T00:00:00Z'),
+        },
+        {
+          id: MILESTONE_SAFFRON_DESIGN_ID,
+          projectId: PROJECT_SAFFRON_ID,
+          title: 'Design System Handoff',
+          description: 'High-fidelity comps and a documented component library.',
+          status: MilestoneStatus.IN_PROGRESS,
+          completedAt: null,
+        },
+        {
+          id: MILESTONE_KESTREL_LAUNCH_ID,
+          projectId: PROJECT_KESTREL_ID,
+          title: 'Launch Readiness Review',
+          description: 'Content, SEO, and analytics sign-off ahead of go-live.',
+          status: MilestoneStatus.SUBMITTED,
+          completedAt: null,
+        },
+      ];
+      for (const m of MILESTONES) {
+        await tx.milestone.upsert({
+          where: { id: m.id },
+          update: { ...m, tenantId: tenant.id },
+          create: { ...m, tenantId: tenant.id },
+        });
+      }
+
+      const TASKS = [
+        {
+          id: TASK_SAFFRON_WIREFRAMES_ID,
+          projectId: PROJECT_SAFFRON_ID,
+          milestoneId: MILESTONE_SAFFRON_DISCOVERY_ID,
+          assigneeId: managerUser?.id,
+          title: 'Draft homepage wireframe',
+          status: TaskStatus.DONE,
+          priority: TaskPriority.HIGH,
+          completedAt: new Date('2026-07-08T00:00:00Z'),
+        },
+        {
+          id: TASK_SAFFRON_DESIGN_REVIEW_ID,
+          projectId: PROJECT_SAFFRON_ID,
+          milestoneId: MILESTONE_SAFFRON_DESIGN_ID,
+          assigneeId: managerUser?.id,
+          title: 'Review component library with client',
+          status: TaskStatus.IN_PROGRESS,
+          priority: TaskPriority.MEDIUM,
+          completedAt: null,
+        },
+        {
+          id: TASK_KESTREL_COPY_ID,
+          projectId: PROJECT_KESTREL_ID,
+          milestoneId: MILESTONE_KESTREL_LAUNCH_ID,
+          assigneeId: adminUser?.id,
+          title: 'Finalize investor-relations page copy',
+          status: TaskStatus.IN_REVIEW,
+          priority: TaskPriority.HIGH,
+          completedAt: null,
+        },
+        {
+          id: TASK_KESTREL_SEO_AUDIT_ID,
+          projectId: PROJECT_KESTREL_ID,
+          milestoneId: null,
+          assigneeId: null,
+          title: 'Run pre-launch SEO audit',
+          status: TaskStatus.TODO,
+          priority: TaskPriority.URGENT,
+          completedAt: null,
+        },
+      ];
+      for (const t of TASKS) {
+        await tx.task.upsert({
+          where: { id: t.id },
+          update: { ...t, tenantId: tenant.id },
+          create: { ...t, tenantId: tenant.id },
+        });
+      }
+
+      // Phase 8 (AI Workspace, Step 2) — one real, usable template per
+      // PromptCategory value.
+      const PROMPT_TEMPLATES = [
+        {
+          id: PROMPT_TEMPLATE_PROPOSAL_ID,
+          key: 'proposal-generation-v1',
+          category: PromptCategory.PROPOSAL_GENERATION,
+          name: 'Proposal Generator',
+          description: 'Drafts a full project proposal from a client requirements brief.',
+          template:
+            'You are a senior solutions consultant at a web development agency. Based on the ' +
+            'following client requirements, draft a project proposal.\n\nClient: {{clientName}}\n' +
+            'Requirements: {{requirements}}\nBudget range: {{budgetRange}}\n\nRespond with ONLY a ' +
+            'single JSON object (no markdown fences, no commentary before or after) with exactly ' +
+            'these keys: "scope" (string), "deliverables" (string array), "timeline" (string), ' +
+            '"pricingAssumptions" (string array), "risks" (string array), "exclusions" (string ' +
+            'array), "technologyStack" (string array).',
+          variables: ['clientName', 'requirements', 'budgetRange'],
+        },
+        {
+          id: PROMPT_TEMPLATE_REQUIREMENT_ANALYSIS_ID,
+          key: 'requirement-analysis-v1',
+          category: PromptCategory.REQUIREMENT_ANALYSIS,
+          name: 'Requirement Analyzer',
+          description: 'Extracts features, modules, risks, and open questions from a raw brief.',
+          template:
+            'Analyze the following project requirements document.\n\nDocument:\n{{documentText}}\n\n' +
+            'Respond with ONLY a single JSON object (no markdown fences, no commentary before or ' +
+            'after) with exactly these keys: "features" (string array), "modules" (string array), ' +
+            '"risks" (string array), "timelineEstimate" (string), "questions" (string array — ' +
+            'clarifying questions to send back to the client).',
+          variables: ['documentText'],
+        },
+        {
+          id: PROMPT_TEMPLATE_WEBSITE_AUDIT_ID,
+          key: 'website-audit-v1',
+          category: PromptCategory.WEBSITE_AUDIT,
+          name: 'Website Audit',
+          description: 'Reviews a website URL/summary for UX, performance, and content gaps.',
+          template:
+            'Audit the website described below for UX issues, performance red flags, accessibility ' +
+            'gaps, and content weaknesses. Prioritize findings by impact.\n\nURL: {{url}}\nNotes: ' +
+            '{{notes}}',
+          variables: ['url', 'notes'],
+        },
+        {
+          id: PROMPT_TEMPLATE_SEO_ID,
+          key: 'seo-recommendations-v1',
+          category: PromptCategory.SEO_RECOMMENDATIONS,
+          name: 'SEO Recommendations',
+          description: 'Generates on-page and technical SEO recommendations for a page/topic.',
+          template:
+            'Given the target page and primary keyword below, produce on-page SEO recommendations ' +
+            '(title, meta description, heading structure, internal linking) and technical SEO ' +
+            'checks to verify.\n\nPage: {{pageUrl}}\nPrimary keyword: {{keyword}}',
+          variables: ['pageUrl', 'keyword'],
+        },
+        {
+          id: PROMPT_TEMPLATE_CLIENT_EMAIL_ID,
+          key: 'client-email-v1',
+          category: PromptCategory.CLIENT_EMAIL,
+          name: 'Client Email Drafter',
+          description: 'Drafts a client-facing email for a given purpose and key points.',
+          // Updated for Phase 8, Step 8 (AI Email Assistant) — its first
+          // real consumer. Was plain prose (`clientName`/`purpose`/
+          // `keyPoints`, no JSON contract) since Steps 1-2 seeded it
+          // ahead of any real caller; same "update on first real use"
+          // treatment Step 5 gave project-estimation-v1. Renamed
+          // `clientName` -> `recipientName` (a Meeting Request isn't
+          // always addressed to a "client") and added `emailType` so the
+          // model knows which of the five Step 8 email kinds it's
+          // drafting.
+          template:
+            'Draft a professional {{emailType}} email to {{recipientName}} regarding: {{purpose}}. ' +
+            'Key points to include: {{keyPoints}}. Tone: warm but professional.\n\nRespond with ' +
+            'ONLY a single JSON object (no markdown fences, no commentary before or after) with ' +
+            'exactly these keys: "subject" (string), "body" (string, the full email body).',
+          variables: ['emailType', 'recipientName', 'purpose', 'keyPoints'],
+        },
+        {
+          id: PROMPT_TEMPLATE_MEETING_SUMMARY_ID,
+          key: 'meeting-summary-v1',
+          category: PromptCategory.MEETING_SUMMARY,
+          name: 'Meeting Summary',
+          description: 'Summarizes meeting notes into a structured recap with action items.',
+          template:
+            'Summarize the following meeting notes into: a brief recap, key decisions made, and a ' +
+            'list of action items with owners if mentioned.\n\nNotes:\n{{meetingNotes}}',
+          variables: ['meetingNotes'],
+        },
+        {
+          id: PROMPT_TEMPLATE_SCOPE_ID,
+          key: 'scope-generation-v1',
+          category: PromptCategory.SCOPE_GENERATION,
+          name: 'Scope Generator',
+          description: 'Turns a feature list into a structured scope-of-work document.',
+          template:
+            'Convert the following feature list into a structured scope-of-work: in-scope items, ' +
+            'out-of-scope items, and assumptions.\n\nProject: {{projectName}}\nFeatures:\n' +
+            '{{featureList}}',
+          variables: ['projectName', 'featureList'],
+        },
+        {
+          id: PROMPT_TEMPLATE_ESTIMATION_ID,
+          key: 'project-estimation-v1',
+          category: PromptCategory.PROJECT_ESTIMATION,
+          name: 'Project Estimator',
+          description:
+            'Estimates hours, sprint count, team size, budget, complexity, and dependencies for a scope.',
+          template:
+            'Given the scope of work below, produce a project estimate.\n\nScope:\n{{scopeOfWork}}\n\n' +
+            'Respond with ONLY a single JSON object (no markdown fences, no commentary before or ' +
+            'after) with exactly these keys: "estimatedHours" (string, e.g. "120-160 hours"), ' +
+            '"sprintCount" (string, e.g. "4 sprints (2-week)"), "teamSize" (string, recommended ' +
+            'team composition), "budgetRange" (string), "complexity" (string — Low, Medium, or ' +
+            'High), "dependencies" (string array — external dependencies or blockers), ' +
+            '"confidenceScore" (number 0-100 — your confidence in this estimate).',
+          variables: ['scopeOfWork'],
+        },
+        {
+          id: PROMPT_TEMPLATE_RISK_ANALYSIS_ID,
+          key: 'risk-analysis-v1',
+          category: PromptCategory.RISK_ANALYSIS,
+          name: 'Risk Analysis',
+          description: 'Identifies delivery risks and mitigations for a project scope.',
+          template:
+            'Identify the top delivery risks for the project described below (technical, scope, ' +
+            'timeline, and client-side risks), each with a likelihood, impact, and suggested ' +
+            'mitigation.\n\nProject:\n{{projectDescription}}',
+          variables: ['projectDescription'],
+        },
+        {
+          id: PROMPT_TEMPLATE_TASK_GENERATION_ID,
+          key: 'task-generation-v1',
+          category: PromptCategory.TASK_GENERATION,
+          name: 'Task Generator',
+          description:
+            'Breaks a requirements brief or milestone into epics/stories/tasks/subtasks.',
+          template:
+            'Break the following project context down into a full work breakdown structure.\n\n' +
+            'Context:\n{{context}}\n\nRespond with ONLY a single JSON object (no markdown fences, ' +
+            'no commentary before or after) with exactly this key: "suggestions" — an array of ' +
+            'objects, each with: "type" (one of "epic", "story", "task", "subtask"), "title" ' +
+            '(string), "description" (string), "acceptanceCriteria" (string array). Break the work ' +
+            'down hierarchically in your thinking (epics contain stories, stories contain tasks, ' +
+            'tasks may contain subtasks) but return every item as entries in ONE flat array — do ' +
+            'not nest objects inside each other.',
+          variables: ['context'],
+        },
+        {
+          id: PROMPT_TEMPLATE_CONTENT_GENERATION_ID,
+          key: 'content-generation-v1',
+          category: PromptCategory.CONTENT_GENERATION,
+          name: 'Content Assistant',
+          description:
+            'Drafts case studies, service descriptions, blog posts, FAQs, landing pages, or social posts from a brief.',
+          template:
+            'Write a {{contentType}} based on the brief below. Match the tone and voice of a ' +
+            'professional web design and development agency.\n\nBrief:\n{{brief}}\n\nRespond with ' +
+            'ONLY a single JSON object (no markdown fences, no commentary before or after) with ' +
+            'exactly these keys: "title" (string, a short title for this piece), "body" (string, ' +
+            'the full drafted content, using plain text or markdown formatting as appropriate for ' +
+            'the content type).',
+          variables: ['contentType', 'brief'],
+        },
+      ];
+      for (const p of PROMPT_TEMPLATES) {
+        await tx.promptTemplate.upsert({
           where: { id: p.id },
           update: { ...p, tenantId: tenant.id },
           create: { ...p, tenantId: tenant.id },
@@ -2696,7 +3128,7 @@ async function main() {
       // scripts a developer runs and reads directly in their own terminal.
       // eslint-disable-next-line no-console
       console.log(
-        `Seeded tenant "${tenant.slug}": ${PERMISSIONS.length} permissions, ${ROLES.length} roles, ${TEST_USERS.length} users, ${SETTINGS.length} settings, ${CLIENTS.length} clients, ${LEADS.length + 1} leads, ${PROJECTS.length} projects, ${CATEGORIES.length} categories, ${COLLECTIONS.length} collections, ${PRODUCTS.length} products, ${FABRIC_CATEGORIES.length} fabric categories, ${FABRICS.length} fabrics, 1 measurement profile, 1 product customization, ${STYLE_OPTIONS.length} style options, 1 warehouse, 2 inventory items, 1 supplier, 2 customers, 1 order, ${LEAD_SOURCES.length} lead sources, ${CUSTOMER_NOTES.length} customer notes, 3 customer activities, 2 follow-up tasks, ${CUSTOMER_TAGS.length} customer tags, ${TAX_RATES.length} tax rates, ${PAYMENT_METHODS.length} payment methods, 1 invoice, 2 payments, 2 payment allocations, ${NOTIFICATION_TEMPLATES.length} notification templates, ${DASHBOARD_WIDGETS.length} dashboard widgets, 2 notifications, 2 audit logs, 2 system events, 1 scheduled report.`,
+        `Seeded tenant "${tenant.slug}": ${PERMISSIONS.length} permissions, ${ROLES.length} roles, ${TEST_USERS.length} users, ${SETTINGS.length} settings, ${CLIENTS.length} clients, ${LEADS.length + 1} leads, ${PROJECTS.length} projects, ${MILESTONES.length} milestones, ${TASKS.length} tasks, ${PROMPT_TEMPLATES.length} prompt templates, ${CATEGORIES.length} categories, ${COLLECTIONS.length} collections, ${PRODUCTS.length} products, ${FABRIC_CATEGORIES.length} fabric categories, ${FABRICS.length} fabrics, 1 measurement profile, 1 product customization, ${STYLE_OPTIONS.length} style options, 1 warehouse, 2 inventory items, 1 supplier, 2 customers, 1 order, ${LEAD_SOURCES.length} lead sources, ${CUSTOMER_NOTES.length} customer notes, 3 customer activities, 2 follow-up tasks, ${CUSTOMER_TAGS.length} customer tags, ${TAX_RATES.length} tax rates, ${PAYMENT_METHODS.length} payment methods, 1 invoice, 2 payments, 2 payment allocations, ${NOTIFICATION_TEMPLATES.length} notification templates, ${DASHBOARD_WIDGETS.length} dashboard widgets, 2 notifications, 2 audit logs, 2 system events, 1 scheduled report.`,
       );
     },
     { timeout: 30_000 },

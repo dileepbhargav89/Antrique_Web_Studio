@@ -55,6 +55,13 @@ async function bootstrap() {
   //     'none'` is strictly tighter than Helmet's own browser-page-
   //     oriented default CSP (which allows 'self' scripts/styles,
   //     irrelevant to a response body that's never rendered as a page).
+  //     `connectSrc: ["'self'"]` is required alongside this: Helmet
+  //     merges its own defaults with these overrides, and unlike
+  //     script-src/style-src/img-src, Helmet has no default `connect-src`
+  //     — an unset one silently falls back to `default-src`, which would
+  //     otherwise block Swagger UI's own "Try it out" fetch calls to this
+  //     same origin (confirmed live — CSP violation in-browser, "Try it
+  //     out" requests to /api/docs never leave the page without this).
   //   - `crossOriginResourcePolicy: 'same-origin'`: this API's own
   //     responses are never meant to be `fetch()`ed as a sub-resource by
   //     an unrelated origin's page (only via CORS-negotiated XHR/fetch
@@ -68,7 +75,11 @@ async function bootstrap() {
   app.use(
     helmet({
       contentSecurityPolicy: {
-        directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
+        directives: {
+          defaultSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+          connectSrc: ["'self'"],
+        },
       },
       crossOriginResourcePolicy: { policy: 'same-origin' },
     }),

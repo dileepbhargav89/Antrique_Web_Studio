@@ -156,6 +156,19 @@ model Tenant {
   dashboardWidgets      DashboardWidget[]
   scheduledReports      ScheduledReport[]
 
+  // Phase 7 (Real Email — Newsletter)
+  newsletterSubscribers NewsletterSubscriber[]
+
+  // Phase 7 (Project/Task/Milestone)
+  comments Comment[]
+
+  // Phase 8 (AI Workspace)
+  promptTemplates PromptTemplate[]
+  contentDrafts   ContentDraft[]
+
+  // Phase 9 (Enterprise Operations Suite, Module 1: Finance)
+  vendors Vendor[]
+
   @@map("tenants")
 }
 
@@ -211,6 +224,11 @@ model User {
   notifications           Notification[]
   activityLogEntries      ActivityLog[]        @relation("ActivityLogActor")
   auditLogEntries         AuditLog[]           @relation("AuditLogActor")
+  // Phase 7 (Project/Task/Milestone) — the staff user who wrote a Comment
+  // on a Task or Milestone (nullable — same "actor may be unknown/system-
+  // generated" allowance every other author-ish field in this schema
+  // already has).
+  authoredComments        Comment[]            @relation("CommentAuthor")
   // Milestone 6 — the portal user a MeasurementProfile's body measurements
   // belong to (not asked for explicitly by this milestone's own
   // "Relationships" list, but a measurement profile needs SOME owner to
@@ -371,13 +389,18 @@ enum ContactRequestStatus {
 }
 
 /// Unqualified inbound inbox (public contact form) — lighter-weight than a
-/// Lead; converts into one via `converted_lead_id`.
+/// Lead; converts into one via `converted_lead_id`. `company` added Phase 7
+/// (Real Email/Contact) — the frontend contact form already collected it;
+/// this model had zero application-layer consumers before Phase 7, so
+/// adding one nullable column is a safe, purely additive completion, not
+/// a change to an existing contract.
 model ContactRequest {
   id              String               @id @default(uuid(7)) @db.Uuid
   tenantId        String               @map("tenant_id") @db.Uuid
   name            String
   email           String
   phone           String?
+  company         String?
   message         String
   source          String?
   status          ContactRequestStatus @default(NEW)
@@ -399,6 +422,47 @@ model ContactRequest {
   @@index([tenantId, createdAt])
   @@index([convertedLeadId])
   @@map("contact_requests")
+}
+
+enum NewsletterSubscriberStatus {
+  SUBSCRIBED
+  UNSUBSCRIBED
+}
+
+/// Marketing-site newsletter signup (Phase 7 — Real Email) — distinct from
+/// ContactRequest (a message-based inbound inquiry): no message, just an
+/// ongoing subscription state. Uniqueness per tenant+email is enforced at
+/// the application layer (find-then-create/update in
+/// NewsletterSubscriberRepository, the same "partial unique index can't be
+/// expressed in the Prisma DSL" find-then-act pattern this schema's own
+/// Role/User/Setting models already use), not a schema-level `@@unique` —
+/// a hard unique constraint would permanently block a legitimate
+/// re-subscribe after a soft-deleted unsubscribe. A real DB-level partial
+/// unique index (raw SQL, matching the 20260717091500_row_level_security
+/// migration's own precedent) is a reasonable future hardening pass, not
+/// built this phase.
+model NewsletterSubscriber {
+  id             String                     @id @default(uuid(7)) @db.Uuid
+  tenantId       String                     @map("tenant_id") @db.Uuid
+  email          String
+  status         NewsletterSubscriberStatus @default(SUBSCRIBED)
+  subscribedAt   DateTime                   @default(now()) @map("subscribed_at")
+  unsubscribedAt DateTime?                  @map("unsubscribed_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, email])
+  @@index([tenantId, status])
+  @@map("newsletter_subscribers")
 }
 
 enum LeadStatus {
@@ -637,9 +701,10 @@ model Milestone {
   deletedAt DateTime? @map("deleted_at")
   deletedBy String?   @map("deleted_by") @db.Uuid
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  tasks   Task[]
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tasks    Task[]
+  comments Comment[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -692,6 +757,7 @@ model Task {
   project   Project    @relation(fields: [projectId], references: [id], onDelete: Restrict)
   milestone Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   assignee  User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  comments  Comment[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -744,6 +810,33 @@ model Document {
   @@map("documents")
 }
 
+/// Discussion thread entry on exactly one of a Task or a Milestone — same
+/// XOR shape `FollowUpTask.leadId`/`customerId` already established
+/// (enforced via a hand-written CHECK constraint, Prisma's DSL can't
+/// express it — see the migration). No standalone `Project`-level comment
+/// target: comment on the task/milestone that's actually being discussed.
+model Comment {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  taskId      String? @map("task_id") @db.Uuid
+  milestoneId String? @map("milestone_id") @db.Uuid
+  authorId    String? @map("author_id") @db.Uuid
+  body        String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  task      Task?      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  milestone Milestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  author    User?      @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([taskId])
+  @@index([milestoneId])
+  @@map("comments")
+}
+
 // =============================================================================
 // COMMERCE
 // =============================================================================
@@ -777,6 +870,11 @@ model Quotation {
   validUntil      DateTime?       @map("valid_until") @db.Date
   issuedAt        DateTime?       @map("issued_at")
   notes           String?
+  /// Phase 7 (Enterprise CRM/Project-Management) — set when `POST
+  /// /quotations/:id/send` generates and stores the PDF (DocumentPdfService
+  /// + StorageService); null until then. Genuinely additive — nothing
+  /// before this phase read or wrote this column.
+  pdfUrl          String?         @map("pdf_url")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -3071,4 +3169,170 @@ model ScheduledReport {
   @@index([tenantId, createdAt])
   @@index([tenantId, type])
   @@map("scheduled_reports")
+}
+
+// =============================================================================
+// AI WORKSPACE (Phase 8)
+// =============================================================================
+// Step 1 (AI Architecture — provider abstraction) has no schema footprint:
+// the strategy/factory pattern and the four provider adapters
+// (Anthropic/OpenAI/Gemini/OpenRouter) are pure application code, see
+// apps/api/src/ai/README.md. This section is Step 2 (Prompt Library) only.
+
+enum PromptCategory {
+  PROPOSAL_GENERATION
+  REQUIREMENT_ANALYSIS
+  WEBSITE_AUDIT
+  SEO_RECOMMENDATIONS
+  CLIENT_EMAIL
+  MEETING_SUMMARY
+  SCOPE_GENERATION
+  PROJECT_ESTIMATION
+  RISK_ANALYSIS
+  /// Phase 8, Step 6 — added after Steps 1-2's original 9 categories
+  /// (which matched Step 2's own example list exactly); Task Generation
+  /// wasn't one of those 9 examples but is its own later spec step.
+  TASK_GENERATION
+  /// Phase 8, Step 7 — one shared category for all six Content Assistant
+  /// output kinds (case study/service description/blog draft/FAQ/landing
+  /// page/social post); which kind is a `ContentDraft.type` value, not a
+  /// separate PromptCategory each — one template handles all six via a
+  /// {{contentType}} variable, same "one template per feature" shape
+  /// every other Phase 8 step uses.
+  CONTENT_GENERATION
+}
+
+/// A reusable, versioned prompt template (Step 2). `template` holds
+/// `{{variable}}` placeholders; `variables` names every placeholder the
+/// template actually references — read at render time to validate the
+/// caller supplied all of them, not enforced at the DB level (Postgres has
+/// no way to cross-check a text column against a string array column).
+/// `version` is the same optimistic-lock counter every other model in this
+/// schema already uses (Client/Milestone/Task/...), NOT a version-history
+/// chain — Quotation's own doc comment already established "version =
+/// counter, not history" as this codebase's deliberate reading of
+/// "versioned" elsewhere; this model follows the same convention rather
+/// than inventing a second meaning for the word here.
+model PromptTemplate {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  key         String
+  category    PromptCategory
+  name        String
+  description String?
+  template    String
+  variables   String[]
+  isActive    Boolean        @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // Partial unique index (WHERE deleted_at IS NULL) added by hand in the
+  // migration, same "soft-deletable + slug-like key" landmine every prior
+  // migration since 20260717090500_partial_unique_indexes documents — no
+  // @@unique here, Prisma's own DSL can't express the partial form.
+  @@index([tenantId])
+  @@index([tenantId, category])
+  @@map("prompt_templates")
+}
+
+/// Phase 8, Step 7 — the one AI output kind this spec step explicitly
+/// requires persisting ("Store drafts only. Never publish automatically.")
+/// rather than the ephemeral "no DB write" shape Steps 3-5 and Step 6's
+/// own `generate()` use. No publish/status field — this app has no
+/// content-management/publish pipeline for a draft to graduate into (the
+/// marketing site is hand-authored pages, not CMS-backed); a human copies
+/// an approved draft into wherever it's actually needed. No project/client
+/// FK — Content Assistant output (case studies, blog drafts, social posts)
+/// isn't inherently scoped to one delivery project the way a Proposal or
+/// Task Generator suggestion is.
+enum ContentDraftType {
+  CASE_STUDY
+  SERVICE_DESCRIPTION
+  BLOG_DRAFT
+  FAQ
+  LANDING_PAGE
+  SOCIAL_POST
+}
+
+model ContentDraft {
+  id       String           @id @default(uuid(7)) @db.Uuid
+  tenantId String           @map("tenant_id") @db.Uuid
+  type     ContentDraftType
+  title    String
+  body     String           @db.Text
+  brief    String           @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, type])
+  @@map("content_drafts")
+}
+
+// =============================================================================
+// PHASE 9 — ENTERPRISE OPERATIONS SUITE, MODULE 1: FINANCE
+// =============================================================================
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+/// Phase 9, Module 1, Step 1 (Vendor Management) — who the agency pays for
+/// goods/services (contractors, software subscriptions, office supplies),
+/// distinct from `Supplier` (Milestone 7 — who the agency sources
+/// fabrics/finished-good variants FROM, linked only to `SupplierProduct`
+/// for inventory sourcing, no payment-terms/tax-ID concept). Same flat
+/// CRUD shape `Supplier` already establishes (name/slug/contact fields/
+/// status/notes + full audit columns) plus two fields this phase's brief
+/// specifically calls for: `gstin` (Tax Configuration, Step 6, needs a
+/// vendor-side GSTIN to reconcile input-tax-credit — captured here now so
+/// Step 6 doesn't need a second migration on this table) and
+/// `paymentTerms` (free-text, e.g. "Net 30" — no fixed enum; every agency
+/// negotiates its own terms per vendor, not a closed list).
+model Vendor {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  name         String
+  slug         String
+  contactName  String?      @map("contact_name")
+  contactEmail String?      @map("contact_email")
+  contactPhone String?      @map("contact_phone")
+  gstin        String?
+  paymentTerms String?      @map("payment_terms")
+  status       VendorStatus @default(ACTIVE)
+  notes        String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  // NOTE: partial unique WHERE deleted_at IS NULL — see User note above.
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("vendors")
 }

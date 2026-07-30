@@ -24,6 +24,21 @@ import { BillingModule } from './modules/billing/billing.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './health/health.module';
 import { JobsModule } from './jobs/jobs.module';
+import { EmailModule } from './email/email.module';
+import { StorageModule } from './storage/storage.module';
+import { PdfModule } from './pdf/pdf.module';
+import { ContactModule } from './modules/contact/contact.module';
+import { NewsletterModule } from './modules/newsletter/newsletter.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+import { AiModule } from './ai/ai.module';
+import { PromptsModule } from './modules/prompts/prompts.module';
+import { ProposalGeneratorModule } from './modules/proposal-generator/proposal-generator.module';
+import { RequirementAnalyzerModule } from './modules/requirement-analyzer/requirement-analyzer.module';
+import { ProjectEstimatorModule } from './modules/project-estimator/project-estimator.module';
+import { TaskGeneratorModule } from './modules/task-generator/task-generator.module';
+import { ContentAssistantModule } from './modules/content-assistant/content-assistant.module';
+import { EmailAssistantModule } from './modules/email-assistant/email-assistant.module';
+import { FinanceModule } from './modules/finance/finance.module';
 
 @Module({
   imports: [
@@ -150,11 +165,85 @@ import { JobsModule } from './jobs/jobs.module';
     // dead-letter abstractions only, zero real scheduled jobs, zero Redis/
     // queue backend. See jobs/README.md.
     JobsModule,
+    // Real transactional email (Phase 7) — @Global() Resend client
+    // wrapper + the SendEmailJob every fire-and-forget send goes through
+    // JobRunner with. Registered ahead of ContactModule/NewsletterModule
+    // below, its first two real consumers. See email/README.md.
+    EmailModule,
+    // Real S3-compatible object storage (Phase 7) — @Global(), consumed
+    // by CatalogModule's new ProductImageService
+    // (`POST /products/:id/images`). Array position doesn't affect
+    // resolution (Global providers are available regardless of import
+    // order), grouped here with EmailModule for documentation clarity.
+    // See storage/README.md.
+    StorageModule,
+    // Shared PDF-generation infra (Phase 7, Enterprise CRM/Project-
+    // Management) — @Global() DocumentPdfService, consumed by
+    // CrmModule's new QuotationService (Invoice, Phase 5, is a known
+    // second consumer). See pdf/README.md.
+    PdfModule,
+    // Marketing-site contact form (Phase 7) — ContactRequest's first real
+    // consumer (the model existed since Phase 1.1A, unused). Public,
+    // unauthenticated route. See modules/contact/README.md.
+    ContactModule,
+    // Marketing-site newsletter signup (Phase 7) — NewsletterSubscriber
+    // is a new model, added this phase. Public, unauthenticated route.
+    // See modules/newsletter/README.md.
+    NewsletterModule,
+    // Project/Task/Milestone (Phase 7) — Project/ProjectMember/Milestone/
+    // Task/Document/ActivityLog REST APIs, tenant-scoped, RBAC-protected
+    // via PermissionsGuard. Imports CrmModule (exported ClientRepository/
+    // LeadRepository) — see modules/projects/projects.module.ts for the
+    // full reasoning. The one genuine greenfield build the Phase 7
+    // workflow audit found (docs/implementation/phase-7-workflow-matrix.md)
+    // — schema fully modeled since Phase 1.1A, zero consumers until now.
+    ProjectsModule,
+    // AI provider abstraction (Phase 8, Step 1) — @Global() strategy/
+    // factory over four LLM providers (Anthropic real+tested, OpenAI/
+    // Gemini/OpenRouter structural). Registered ahead of PromptsModule
+    // below, its first real consumer. See ai/README.md.
+    AiModule,
+    // Prompt Library (Phase 8, Step 2) — versioned PromptTemplate REST
+    // API, tenant-scoped, RBAC-protected via PermissionsGuard. Imports
+    // nothing beyond the global AiModule (its render-and-test action).
+    // See modules/prompts/README.md.
+    PromptsModule,
+    // Proposal Generator (Phase 8, Step 3) — one action, no persistence
+    // (see modules/proposal-generator/README.md for why). Imports
+    // CrmModule + PromptsModule.
+    ProposalGeneratorModule,
+    // Requirement Analyzer (Phase 8, Step 4) — one action, no persistence
+    // beyond the uploaded document itself (StorageService). Imports
+    // PromptsModule.
+    RequirementAnalyzerModule,
+    // Project Estimator (Phase 8, Step 5) — one action, no persistence.
+    // Imports PromptsModule.
+    ProjectEstimatorModule,
+    // Task Generator (Phase 8, Step 6) — generate drafts nothing-written,
+    // approve creates real Task rows via Phase 7's TaskService. Imports
+    // PromptsModule + ProjectsModule.
+    TaskGeneratorModule,
+    // Content Assistant (Phase 8, Step 7) — persists ContentDraft rows,
+    // unlike Steps 3-6's ephemeral shape. Imports PromptsModule.
+    ContentAssistantModule,
+    // Email Assistant (Phase 8, Step 8) — generate (drafts, no send) +
+    // send (real, via the existing EmailService, no AI call). Imports
+    // PromptsModule.
+    EmailAssistantModule,
+    // Enterprise Operations Suite, Module 1: Finance (Phase 9, Step 1 —
+    // Vendor Management) — Vendor REST API, tenant-scoped, RBAC-protected
+    // via PermissionsGuard. Distinct from BillingModule (Invoice/Payment/
+    // Tax) and InventoryModule (Supplier — product/inventory sourcing, a
+    // different concept). Imports nothing yet; Steps 2-7 (Purchase
+    // Orders, Expenses, Invoice PDF+email, Refunds, GST tax config,
+    // Revenue/P&L/Cash-Flow dashboards) extend this same module. See
+    // modules/finance/README.md.
+    FinanceModule,
     // Remaining business modules attach here as they're built, each
     // owning its own controllers/services/repositories per
     // apps/api/src/modules/*/README.md and following
     // docs/architecture/domain-module-guide.md's standards:
-    //   ProjectsModule, ContentModule
+    //   ContentModule
   ],
   controllers: [],
   providers: [

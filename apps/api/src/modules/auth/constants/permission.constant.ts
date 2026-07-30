@@ -8,6 +8,62 @@
 // speculatively ahead of one.
 export const PERMISSION = {
   PROJECTS_WRITE: 'projects:write',
+  // Phase 7 (Project/Task/Milestone) — `projects:read`/`projects:delete`
+  // already existed in the seed catalog since Phase 1.1B alongside
+  // `projects:write` above (dead until now, same "found already seeded"
+  // situation `clients:read`/`quotations:read` were in), reused as-is.
+  // `milestones:*`/`tasks:*`/`documents:*` (project-scoped, distinct from
+  // Catalog's `product_customizations` or the narrow product-image upload
+  // path) were also already seeded, unconsumed. `comments:*` is new —
+  // no comment/annotation model existed before this phase.
+  PROJECTS_READ: 'projects:read',
+  PROJECTS_DELETE: 'projects:delete',
+  MILESTONES_READ: 'milestones:read',
+  MILESTONES_WRITE: 'milestones:write',
+  TASKS_READ: 'tasks:read',
+  TASKS_WRITE: 'tasks:write',
+  DOCUMENTS_READ: 'documents:read',
+  DOCUMENTS_WRITE: 'documents:write',
+  // Not granted to `client`/`customer` — Task is explicitly "internal
+  // delivery-team tool, not client-facing" per its own schema comment, and
+  // Milestone-level client commentary is a known scope gap (see
+  // docs/implementation/phase-7-workflow-matrix.md's deferred list), not
+  // built this phase. Same tier as `milestones:write`/`tasks:write`
+  // (project_manager, manager only).
+  COMMENTS_READ: 'comments:read',
+  COMMENTS_WRITE: 'comments:write',
+  // Phase 8 (AI Workspace, Step 2 — Prompt Library) — new keys, no
+  // Phase-1.1B-seeded row to reuse (unlike projects:*/milestones:*/
+  // tasks:*/documents:*, which were all pre-seeded). Same "Manager,
+  // Project Manager" tier as milestones:write/tasks:write — `test` calls
+  // a real, costed AI provider, so both read and write stay restricted
+  // to delivery-side roles for this first phase rather than opened to
+  // sales/client, a deliberately conservative default for a brand-new
+  // capability with real external cost. No `prompt_templates:delete` —
+  // deactivation happens through the ordinary update route's `isActive`
+  // field, same shape ClientController already follows.
+  PROMPT_TEMPLATES_READ: 'prompt_templates:read',
+  PROMPT_TEMPLATES_WRITE: 'prompt_templates:write',
+  // Phase 8, Step 7 (AI Content Assistant) — a new, real resource
+  // (unlike Steps 3-6, which either write nothing or write through an
+  // existing resource's own permission). Same "Manager, Project Manager"
+  // tier as prompt_templates:*, plus a `:delete` key — content_drafts are
+  // one-off generated artifacts a human discards when rejected, closer to
+  // customer_notes:delete than prompt_templates (which has no delete,
+  // deactivation happens via its own `isActive` field instead).
+  CONTENT_DRAFTS_READ: 'content_drafts:read',
+  CONTENT_DRAFTS_WRITE: 'content_drafts:write',
+  CONTENT_DRAFTS_DELETE: 'content_drafts:delete',
+  // Phase 8, Step 8 (AI Email Assistant) — `generate` (a draft, no
+  // external effect) reuses `prompt_templates:write` like every other
+  // Phase 8 drafting action. `send` is new: a real, external side effect
+  // (an actual email delivered through the live `EmailService`/Resend),
+  // so it gets its own single-action tier, same shape
+  // `orders:cancel`/`invoices:void`/`payments:refund` already established
+  // for "an existing capability's one real, consequential action" rather
+  // than a full read/write/delete resource (Email Assistant persists
+  // nothing — there's no `emails` resource to read/write/delete).
+  EMAILS_SEND: 'emails:send',
   // Milestone 5 (Product Catalog Foundation) — read/write/delete for all
   // three catalog resources, matching the RBAC brief's tiers exactly
   // (Customer+ read, Manager+ write, Admin+ delete — see
@@ -131,6 +187,22 @@ export const PERMISSION = {
   DASHBOARD_READ: 'dashboard:read',
   REPORTS_READ: 'reports:read',
   REPORTS_WRITE: 'reports:write',
+  // Phase 7 (Enterprise CRM/Project-Management), Phase 1 — `clients:read`/
+  // `clients:write` already existed in prisma/seed.ts's PERMISSIONS
+  // catalog since Phase 1.1B (dead — no controller ever consumed them
+  // until now); reused as-is, no new seed row needed. No `clients:delete`
+  // key exists to grant (none was ever seeded) — ClientController has no
+  // DELETE route; archiving happens via the ordinary update route's
+  // `status` field instead (see client.service.ts's own comment).
+  CLIENTS_READ: 'clients:read',
+  CLIENTS_WRITE: 'clients:write',
+  // Phase 7, Phase 2 — `quotations:read`/`quotations:write` already
+  // existed in the seed catalog since Phase 1.1B (dead until now — see
+  // quotation.service.ts's own header comment for why Quotation is this
+  // phase's "Proposal"). No `quotations:delete` key exists to grant
+  // (none was ever seeded) — QuotationController has no DELETE route.
+  QUOTATIONS_READ: 'quotations:read',
+  QUOTATIONS_WRITE: 'quotations:write',
   // Milestone 14 (Production Infrastructure) — "Expose runtime metadata
   // endpoint (Admin only)." A new key, not a reuse of `dashboard:read`
   // (Manager+, business KPIs) or `audit_logs:read` (Admin+, compliance
@@ -141,6 +213,14 @@ export const PERMISSION = {
   // admin/super_admin grant, deliberately absent from every other role's
   // explicit list).
   SYSTEM_READ: 'system:read',
+  // Phase 9, Module 1, Step 1 (Enterprise Operations Suite — Finance:
+  // Vendor Management) — new keys, mirroring `clients:read`/
+  // `clients:write`'s own tier exactly (no delete key — Vendor archives
+  // via the ordinary update route's `status` field, same reasoning
+  // `Client` gives; no `clients:delete`-equivalent was ever seeded for
+  // either).
+  VENDORS_READ: 'vendors:read',
+  VENDORS_WRITE: 'vendors:write',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION)[keyof typeof PERMISSION];
