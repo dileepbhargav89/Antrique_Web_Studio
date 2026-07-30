@@ -133,6 +133,25 @@ export class AuditService {
         : {}),
     };
 
+    // Phase 10, Module 1 (Performance) — opt-in cursor mode, additive:
+    // `page`/`limit` behavior below is completely unchanged when `cursor`
+    // is absent. See CursorPaginationQueryDto's own comment.
+    if (query.cursor !== undefined) {
+      const { items, nextCursor } = await this.auditRepository.findManyByCursor(
+        tenantId,
+        where,
+        query.cursor,
+        limit,
+      );
+      return new PaginatedResponseDto(
+        items.map(toAuditLogResponseDto),
+        items.length,
+        page,
+        limit,
+        nextCursor,
+      );
+    }
+
     const { items, total } = await this.auditRepository.findManyPaginated(
       tenantId,
       where,

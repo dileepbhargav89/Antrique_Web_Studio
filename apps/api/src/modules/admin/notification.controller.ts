@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -15,6 +16,8 @@ import { NotificationService } from './notification.service';
 import { NotificationListQueryDto } from './dto/notification-list-query.dto';
 import { RetryNotificationDto } from './dto/retry-notification.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
+import { MarkNotificationsReadDto } from './dto/mark-notifications-read.dto';
+import { MarkNotificationsReadResponseDto } from './dto/mark-notifications-read-response.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -49,6 +52,11 @@ export class NotificationController {
   @ApiOperation({
     summary:
       'List notifications, admin-wide across all recipients (paginated, filterable, sortable)',
+    description:
+      "Optional `cursor` (a previous page's last item id) switches to cursor-based pagination " +
+      '(id DESC, ignoring sortBy/sortDirection) — recommended for deep pagination on this ' +
+      'append-only table. In cursor mode, `total` is just the returned item count, not the full ' +
+      'matching count; use `nextCursor` (null when no further pages) instead.',
   })
   @ApiPaginatedResponse(NotificationResponseDto)
   @ApiStandardAuthErrors()
@@ -58,6 +66,26 @@ export class NotificationController {
     @Tenant() tenant: TenantContext,
   ): Promise<PaginatedResponseDto<NotificationResponseDto>> {
     return this.notificationService.list(query, tenant.tenantId);
+  }
+
+  @Patch('read-all')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(PERMISSION.NOTIFICATIONS_MANAGE)
+  @ApiOperation({
+    summary: 'Mark unread notifications read in bulk',
+    description:
+      'Optional `userId` in the body scopes this to one recipient; omitted marks every unread ' +
+      'notification tenant-wide read. A single updateMany() — no per-row side effects, unlike ' +
+      'most mutations in this API.',
+  })
+  @ApiOkResponse({ type: MarkNotificationsReadResponseDto })
+  @ApiStandardAuthErrors()
+  @ApiValidationError()
+  markAllRead(
+    @Body() dto: MarkNotificationsReadDto,
+    @Tenant() tenant: TenantContext,
+  ): Promise<MarkNotificationsReadResponseDto> {
+    return this.notificationService.markAllRead(tenant.tenantId, dto.userId);
   }
 
   @Get(':id')

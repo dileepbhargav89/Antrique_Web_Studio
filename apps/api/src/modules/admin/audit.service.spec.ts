@@ -26,6 +26,7 @@ function createFakeAuditRepository(overrides: Partial<Record<string, unknown>> =
     recordEvent: jest.fn(async () => createAuditLogRow()),
     recordSystemEvent: jest.fn(async () => ({})),
     findManyPaginated: jest.fn(async () => ({ items: [], total: 0 })),
+    findManyByCursor: jest.fn(async () => ({ items: [], nextCursor: null })),
     ...overrides,
   } as unknown as AuditRepository;
 }
@@ -137,6 +138,23 @@ describe('AuditService', () => {
         0,
         20,
       );
+    });
+
+    it('switches to findManyByCursor() when a cursor is given, leaving findManyPaginated() untouched', async () => {
+      const auditRepository = createFakeAuditRepository({
+        findManyByCursor: jest.fn(async () => ({
+          items: [createAuditLogRow()],
+          nextCursor: 'log-0',
+        })),
+      });
+      const service = createService(auditRepository);
+
+      const result = await service.list({ cursor: 'log-1' } as never, TENANT_ID);
+
+      expect(auditRepository.findManyByCursor).toHaveBeenCalledWith(TENANT_ID, {}, 'log-1', 20);
+      expect(auditRepository.findManyPaginated).not.toHaveBeenCalled();
+      expect(result.nextCursor).toBe('log-0');
+      expect(result.total).toBe(1);
     });
   });
 });

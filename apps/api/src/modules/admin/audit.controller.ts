@@ -34,7 +34,12 @@ export class AuditController {
   @Permissions(PERMISSION.AUDIT_LOGS_READ)
   @ApiOperation({
     summary: 'List/search the compliance audit trail (paginated)',
-    description: 'Admin/Super Admin only. `search` matches against both action and resource type.',
+    description:
+      'Admin/Super Admin only. `search` matches against both action and resource type. ' +
+      "Optional `cursor` (a previous page's last item id) switches to cursor-based pagination " +
+      '(id DESC, ignoring sortBy/sortDirection) — recommended for deep pagination on this ' +
+      'append-only table. In cursor mode, `total` is just the returned item count, not the full ' +
+      'matching count; use `nextCursor` (null when no further pages) instead.',
   })
   @ApiPaginatedResponse(AuditLogResponseDto)
   @ApiStandardAuthErrors()

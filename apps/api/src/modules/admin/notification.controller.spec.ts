@@ -49,6 +49,7 @@ describe('NotificationController', () => {
             update: jest.fn(async () =>
               createNotificationRow({ status: NotificationStatus.PENDING, retryCount: 1 }),
             ),
+            markAllRead: jest.fn(async () => 4),
           },
         },
         { provide: AuditRepository, useValue: { recordEvent: jest.fn(async () => ({})) } },
@@ -87,5 +88,13 @@ describe('NotificationController', () => {
 
     expect(result.status).toBe(NotificationStatus.PENDING);
     expect(result.retryCount).toBe(1);
+  });
+
+  it('delegates markAllRead() with the resolved tenantId and the request body userId', async () => {
+    const controller = await createController();
+
+    const result = await controller.markAllRead({ userId: 'user-1' }, TENANT);
+
+    expect(result.count).toBe(4);
   });
 });

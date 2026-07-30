@@ -119,6 +119,27 @@ async function main() {
       name: 'crm (GET /leads)',
       opts: { method: 'GET', path: '/leads', headers: authHeader(adminToken) },
     },
+    // Phase 10, Module 1 (Performance) — extends Milestone 12's original 6
+    // scenarios to cover the modules built since (Phase 7 Projects, Phase
+    // 9 Finance, Phase 8 AI Workspace's prompt library). Deliberately
+    // excludes every AI-generation endpoint (proposal-generator,
+    // requirement-analyzer, task-generator, content-assistant,
+    // email-assistant, project-estimator) — they call the live Anthropic
+    // API, which has no credit balance in this environment (a confirmed,
+    // real 502 on every call, not a bug), so benchmarking them would
+    // measure "how fast does this fail," not real endpoint performance.
+    {
+      name: 'projects (GET /projects)',
+      opts: { method: 'GET', path: '/projects', headers: authHeader(adminToken) },
+    },
+    {
+      name: 'finance (GET /vendors)',
+      opts: { method: 'GET', path: '/vendors', headers: authHeader(adminToken) },
+    },
+    {
+      name: 'prompts (GET /prompt-templates)',
+      opts: { method: 'GET', path: '/prompt-templates', headers: authHeader(adminToken) },
+    },
   ];
 
   const results = [];

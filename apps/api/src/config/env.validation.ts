@@ -54,6 +54,26 @@ const envSchema = z.object({
   // Required — no sensible default for a real database connection string.
   DATABASE_URL: z.string().url({ message: 'DATABASE_URL must be a valid connection string URL' }),
   DATABASE_SSL: booleanFromString('false'),
+  // Phase 10, Module 1 (Performance) — `pg.Pool`'s own undocumented
+  // default (`max: 10`, no connection timeout) was previously left
+  // implicit; these make it an explicit, tunable decision. Defaults match
+  // what was already happening in practice, so this is additive-only —
+  // no behavior change until an operator sets these.
+  DATABASE_POOL_MAX: z.coerce
+    .number({ invalid_type_error: 'DATABASE_POOL_MAX must be a valid number' })
+    .int({ message: 'DATABASE_POOL_MAX must be a whole number' })
+    .positive({ message: 'DATABASE_POOL_MAX must be greater than 0' })
+    .default(10),
+  DATABASE_POOL_IDLE_TIMEOUT_MS: z.coerce
+    .number({ invalid_type_error: 'DATABASE_POOL_IDLE_TIMEOUT_MS must be a valid number' })
+    .int({ message: 'DATABASE_POOL_IDLE_TIMEOUT_MS must be a whole number' })
+    .positive({ message: 'DATABASE_POOL_IDLE_TIMEOUT_MS must be greater than 0' })
+    .default(30_000),
+  DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.coerce
+    .number({ invalid_type_error: 'DATABASE_POOL_CONNECTION_TIMEOUT_MS must be a valid number' })
+    .int({ message: 'DATABASE_POOL_CONNECTION_TIMEOUT_MS must be a whole number' })
+    .positive({ message: 'DATABASE_POOL_CONNECTION_TIMEOUT_MS must be greater than 0' })
+    .default(5_000),
 
   // security — cross-cutting rate-limit policy, feeds the `security` domain
   RATE_LIMIT_WINDOW_MS: z.coerce

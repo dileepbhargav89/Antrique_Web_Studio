@@ -9,6 +9,7 @@ function createFakePrisma() {
     findMany: jest.fn(async () => []),
     create: jest.fn(async () => ({}) as unknown),
     update: jest.fn(async () => ({}) as unknown),
+    updateMany: jest.fn(async () => ({ count: 0 })),
     count: jest.fn(async () => 0),
   };
   const notificationTemplate = { findFirst: jest.fn(async () => null) };
@@ -62,6 +63,88 @@ describe('NotificationRepository', () => {
       expect(prisma.notification.count).toHaveBeenCalledWith({
         where: { status: 'FAILED', tenantId: TENANT_ID },
       });
+    });
+  });
+
+  describe('findManyByCursor()', () => {
+    it('queries id DESC with no id filter when cursor is absent (first page)', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+
+      await repository.findManyByCursor(TENANT_ID, { status: 'FAILED' } as never, undefined, 20);
+
+      expect(prisma.notification.findMany).toHaveBeenCalledWith({
+        where: { status: 'FAILED', tenantId: TENANT_ID },
+        orderBy: { id: 'desc' },
+        take: 21,
+      });
+    });
+
+    it('adds an id < cursor filter when a cursor is given', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+
+      await repository.findManyByCursor(TENANT_ID, {} as never, 'notif-20', 20);
+
+      expect(prisma.notification.findMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT_ID, id: { lt: 'notif-20' } },
+        orderBy: { id: 'desc' },
+        take: 21,
+      });
+    });
+
+    it('returns nextCursor as the last item id and trims the extra lookahead row when more pages exist', async () => {
+      const rows = Array.from({ length: 21 }, (_, i) => ({ id: `notif-${20 - i}` }));
+      const prisma = createFakePrisma();
+      (prisma.notification.findMany as jest.Mock).mockResolvedValueOnce(rows);
+      const repository = createRepository(prisma);
+
+      const result = await repository.findManyByCursor(TENANT_ID, {} as never, undefined, 20);
+
+      expect(result.items).toHaveLength(20);
+      expect(result.nextCursor).toBe('notif-1');
+    });
+
+    it('returns nextCursor null when fewer rows than the page size come back (last page)', async () => {
+      const rows = [{ id: 'notif-2' }, { id: 'notif-1' }];
+      const prisma = createFakePrisma();
+      (prisma.notification.findMany as jest.Mock).mockResolvedValueOnce(rows);
+      const repository = createRepository(prisma);
+
+      const result = await repository.findManyByCursor(TENANT_ID, {} as never, undefined, 20);
+
+      expect(result.items).toEqual(rows);
+      expect(result.nextCursor).toBeNull();
+    });
+  });
+
+  describe('markAllRead()', () => {
+    it('updates every unread notification tenant-wide when userId is omitted', async () => {
+      const prisma = createFakePrisma();
+      (prisma.notification.updateMany as jest.Mock).mockResolvedValueOnce({ count: 5 });
+      const repository = createRepository(prisma);
+
+      const count = await repository.markAllRead(TENANT_ID);
+
+      expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT_ID, readAt: null },
+        data: { readAt: expect.any(Date) },
+      });
+      expect(count).toBe(5);
+    });
+
+    it('scopes to a single userId when given', async () => {
+      const prisma = createFakePrisma();
+      (prisma.notification.updateMany as jest.Mock).mockResolvedValueOnce({ count: 2 });
+      const repository = createRepository(prisma);
+
+      const count = await repository.markAllRead(TENANT_ID, 'user-1');
+
+      expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT_ID, userId: 'user-1', readAt: null },
+        data: { readAt: expect.any(Date) },
+      });
+      expect(count).toBe(2);
     });
   });
 

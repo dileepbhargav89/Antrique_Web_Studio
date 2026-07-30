@@ -33,6 +33,8 @@ function createFakeNotificationRepository(overrides: Partial<Record<string, unkn
   return {
     findById: jest.fn(async () => createNotificationRow()),
     findManyPaginated: jest.fn(async () => ({ items: [], total: 0 })),
+    findManyByCursor: jest.fn(async () => ({ items: [], nextCursor: null })),
+    markAllRead: jest.fn(async () => 0),
     create: jest.fn(async () => createNotificationRow()),
     update: jest.fn(async () => createNotificationRow()),
     findActiveTemplateByKey: jest.fn(async () => null),
@@ -195,6 +197,44 @@ describe('NotificationService', () => {
     });
   });
 
+  describe('markAllRead()', () => {
+    it('delegates to the repository and records an AuditLog entry with the affected count', async () => {
+      const notificationRepository = createFakeNotificationRepository({
+        markAllRead: jest.fn(async () => 7),
+      });
+      const auditRepository = createFakeAuditRepository();
+      const service = createService({ notificationRepository, auditRepository });
+
+      const result = await service.markAllRead(TENANT_ID, 'user-1');
+
+      expect(notificationRepository.markAllRead).toHaveBeenCalledWith(TENANT_ID, 'user-1');
+      expect(result.count).toBe(7);
+      expect(auditRepository.recordEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          action: 'notification.mark_all_read',
+          resourceType: 'notification',
+          after: { count: 7, userId: 'user-1' },
+        }),
+      );
+    });
+
+    it('passes userId through as null in the audit entry when omitted (tenant-wide)', async () => {
+      const notificationRepository = createFakeNotificationRepository({
+        markAllRead: jest.fn(async () => 3),
+      });
+      const auditRepository = createFakeAuditRepository();
+      const service = createService({ notificationRepository, auditRepository });
+
+      await service.markAllRead(TENANT_ID);
+
+      expect(notificationRepository.markAllRead).toHaveBeenCalledWith(TENANT_ID, undefined);
+      expect(auditRepository.recordEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ after: { count: 3, userId: null } }),
+      );
+    });
+  });
+
   describe('retry()', () => {
     it('resets a FAILED notification to PENDING, increments retryCount, and records an AuditLog entry', async () => {
       const notificationRepository = createFakeNotificationRepository({
@@ -263,6 +303,28 @@ describe('NotificationService', () => {
         0,
         20,
       );
+    });
+
+    it('switches to findManyByCursor() when a cursor is given, leaving findManyPaginated() untouched', async () => {
+      const notificationRepository = createFakeNotificationRepository({
+        findManyByCursor: jest.fn(async () => ({
+          items: [createNotificationRow()],
+          nextCursor: 'notif-0',
+        })),
+      });
+      const service = createService({ notificationRepository });
+
+      const result = await service.list({ cursor: 'notif-1' } as never, TENANT_ID);
+
+      expect(notificationRepository.findManyByCursor).toHaveBeenCalledWith(
+        TENANT_ID,
+        {},
+        'notif-1',
+        20,
+      );
+      expect(notificationRepository.findManyPaginated).not.toHaveBeenCalled();
+      expect(result.nextCursor).toBe('notif-0');
+      expect(result.total).toBe(1);
     });
   });
 });

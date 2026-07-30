@@ -32,6 +32,48 @@ export class NotificationRepository extends BaseRepository<PrismaService['notifi
     return this.findManyAndCount(this.prisma, { where: scopedWhere, orderBy, skip, take });
   }
 
+  // Phase 10, Module 1 (Performance) — opt-in cursor pagination, same
+  // reasoning as AuditRepository.findManyByCursor() (id < cursor, id
+  // DESC — equivalent to createdAt DESC for a uuid(7) PK, no new index
+  // needed).
+  async findManyByCursor(
+    tenantId: string,
+    where: Prisma.NotificationWhereInput,
+    cursor: string | undefined,
+    take: number,
+  ) {
+    const scopedWhere: Prisma.NotificationWhereInput = {
+      ...where,
+      tenantId,
+      ...(cursor ? { id: { lt: cursor } } : {}),
+    };
+    const rows = await this.delegate.findMany({
+      where: scopedWhere,
+      orderBy: { id: 'desc' },
+      take: take + 1,
+    });
+    const hasMore = rows.length > take;
+    const items = hasMore ? rows.slice(0, take) : rows;
+    // `hasMore` is only true when `items.length === take` (>= 1, per
+    // PaginationQueryDto's own @Min(1)), so `items` is always non-empty
+    // here — TS can't infer that invariant through the ternary above.
+    const nextCursor = hasMore ? (items[items.length - 1]?.id ?? null) : null;
+    return { items, nextCursor };
+  }
+
+  // Phase 10, Module 1 (Performance) — this module's one real batch
+  // write: marking read has no per-row business logic (unlike task
+  // creation's TaskService.create() side effects), so a plain
+  // `updateMany()` is safe. Scoped to `readAt: null` — already-read
+  // notifications are left untouched, not re-stamped.
+  async markAllRead(tenantId: string, userId?: string): Promise<number> {
+    const result = await this.delegate.updateMany({
+      where: { tenantId, ...(userId ? { userId } : {}), readAt: null },
+      data: { readAt: new Date() },
+    });
+    return result.count;
+  }
+
   // Used by NotificationService to resolve a `templateKey`+`channel`
   // into a `NotificationTemplate`'s own `subject`/`body` — the one
   // narrow existence-check/lookup this milestone needs, reached directly

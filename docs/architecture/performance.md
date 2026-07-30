@@ -353,3 +353,179 @@ continuing to enforce RBAC (a `customer`-role token still gets `403` from
 cache — proving no cross-tenant/cross-role cache bleed); Milestone 11's own
 Notification list route, unregressed. All temporary verification scripts
 (`check_raw_decimal.ts`, `smoke_m12.js`) deleted after use.
+
+---
+
+## 10. Phase 10, Module 1 — API Performance (2026-07-30)
+
+**Scope.** Extends this doc's Milestone 12 audit to everything built since
+(Phase 7 Projects, Phase 8 AI Workspace ×7 modules, Phase 9 Finance/Vendor,
+plus the CRM Client/Quotation/Contact/Newsletter and Catalog product-image
+additions) — it does NOT redo Milestone 12's own work. Every module built
+since was grepped for the same anti-patterns Milestone 12 fixed (per-item
+DB-call loops in both reads and writes): zero matches. The discipline
+Milestone 12 established held without a dedicated fix pass — see §10.5.
+
+### 10.1 Database indexes
+
+Every new/changed model's list-query DTO was checked against its actual
+`@@index` coverage (same method as Milestone 12 §1.2 #16). Of 13 models
+checked (Lead, Client, Project, Task, Order, Invoice, Product,
+ContactRequest, NewsletterSubscriber, Quotation, ContentDraft, Vendor,
+PromptTemplate), 11 already had the matching composite — only 3 genuinely
+lacked one, closed in
+`apps/api/prisma/migrations/20260730170000_add_module1_performance_indexes/`:
+
+| Model | Gap | Index added |
+|---|---|---|
+| Vendor | `VendorListQueryDto` defaults `sortBy: 'createdAt'`, no composite backed it (had `tenantId` alone + `(tenantId, status)`) | `(tenant_id, created_at)` |
+| InventoryItem | `warehouseId`/`productVariantId`/`fabricId` each independently filterable, each indexed alone, no `tenantId` prefix | `(tenant_id, warehouse_id)`, `(tenant_id, product_variant_id)`, `(tenant_id, fabric_id)` |
+| Notification | filtered by `userId` AND `status` together (the "my unread notifications" case), no composite covered both | `(tenant_id, user_id, status)` |
+
+Deliberately NOT added, same "Add only necessary" discipline Milestone 12
+established: `Task.priority` (4-value enum, too low-cardinality) and
+`AuditLog.action`/free-text `search` (would need trigram/FTS indexing, a
+separate decision). `PromptTemplate` needed nothing — `(tenant_id,
+category)` already existed (an earlier grep-based pass had flagged it as
+a gap; a full `Read` of the schema block before writing the migration
+caught that it wasn't — worth noting since it changed the migration's
+actual scope).
+
+`EXPLAIN ANALYZE` against the live seed DB (same honest caveat Milestone
+12 §3 documented): at this dataset's scale (1-2 rows per table), Postgres
+correctly prefers a sequential scan over every new index — for a 1-row
+table, an index lookup's overhead exceeds a plain scan. All three
+verified queries returned in under 5ms either way. The indexes are valid
+and will be picked up automatically once row counts justify them; no
+application code change needed when that happens.
+
+### 10.2 Connection pooling
+
+`apps/api/src/database/prisma.service.ts` previously constructed
+`PrismaPg` with only `connectionString`/`ssl` — `pg.Pool`'s own
+undocumented default (`max: 10`, no connection timeout) applied with
+nobody having decided that was right. Now explicit: `DATABASE_POOL_MAX`
+(default 10, unchanged behavior), `DATABASE_POOL_IDLE_TIMEOUT_MS`
+(default 30000), `DATABASE_POOL_CONNECTION_TIMEOUT_MS` (default 5000, new
+fail-fast behavior — a saturated pool now errors instead of hanging),
+validated in `env.validation.ts`, documented in `.env.example`.
+
+### 10.3 Cursor pagination (additive, opt-in)
+
+The API contract is frozen (`CLAUDE.md` — `apps/api/openapi.json` is
+authoritative). All ~35 list endpoints are offset-based (`page`/`limit`
+via `BaseRepository.findManyAndCount`), confirmed consistent — no
+per-endpoint variance to fix. Rather than touch any existing endpoint's
+pagination shape, added a purely additive, opt-in `cursor` query param to
+the two genuinely unbounded, high-growth, append-only tables: `AuditLog`
+and `Notification`.
+
+`CursorPaginationQueryDto` (new, `common/dto/`) extends
+`PaginationQueryDto` with an optional `cursor: string`.
+`AuditLogListQueryDto`/`NotificationListQueryDto` now extend it instead —
+`page`/`limit` behavior is byte-for-byte unchanged when `cursor` is
+absent (verified: all pre-existing specs pass unmodified). Both models
+use `@default(uuid(7))` (time-ordered UUIDs) for `id`, so
+`WHERE id < cursor ORDER BY id DESC` gives the same chronological order
+as `createdAt DESC` would — using the existing primary-key index
+directly, no new index needed for cursor mode itself.
+`PaginatedResponseDto` gained a 5th, optional `nextCursor` constructor
+param (`undefined` for every other endpoint, which `JSON.stringify`
+omits — confirmed via a diffed `openapi.json` regeneration: 0 removed
+fields, 1 changed field being an `@ApiOperation` description string).
+
+### 10.4 Batch operations
+
+Confirmed zero `bulk`/`batch` routes exist anywhere (grep, all 40
+controllers). Given §10.5 found no unsafe write loops to convert, the one
+genuine, safe candidate was `PATCH /notifications/read-all`
+(`MarkNotificationsReadDto` — optional `userId`, matching
+`NotificationController`'s own existing "admin-wide across all
+recipients" design, same `notifications:manage` permission as every
+other route on it) — marking read has no per-row business logic, so a
+plain `updateMany()` (`NotificationRepository.markAllRead()`) is safe,
+unlike e.g. Task creation. Audit-logged (`notification.mark_all_read`),
+matching `retry()`'s own precedent.
+
+### 10.5 Findings, audited and deliberately NOT changed
+
+Milestone-12-style honesty: documenting a finding is not the same as
+having something to fix.
+
+| # | Finding | Why left alone |
+|---|---|---|
+| 19 | N+1/eager-loading across every Phase 7-9 module | Grepped for per-item DB-call loops in `projects`, `finance`, `crm`, `contact`, `newsletter`, `catalog` (images), `content-assistant`, `prompts`: zero matches. Milestone 12's discipline (batch reads, split list/detail `include`) held without a dedicated fix pass. |
+| 20 | `task-generator.service.ts`'s `approve()` loop creates Task rows sequentially, one `TaskService.create()` call per suggestion | Same reasoning class as Milestone 12 §1.2 #13-15: each iteration runs real business logic (audit logging, notifications, validation) via the existing, unchanged `TaskService.create()` — collapsing it into a raw `createMany()` would silently drop that per-task side effect. Correctly sequential, not a bug (confirmed via the method's own inline comment, written when it was built). |
+| 21 | Response compression | Re-confirmed still globally applied — `compression()` in `main.ts`'s bootstrap chain automatically covers every route added since Milestone 12, including all of Phase 7-9. No code change needed. |
+| 22 | RLS `SET LOCAL app.current_tenant_id` contract (`database-schema.md`'s own documented design) is not actually wired into Prisma anywhere — `tenant.middleware.ts` only sets request-local context for the app layer's own `WHERE tenantId = ...` scoping (confirmed present on every query — the primary enforcement `CLAUDE.md`'s "RLS is the backstop, not the only gate" already relies on), never touches Prisma | Real finding, but a security-architecture gap, not a performance one. Fixing it (a `PrismaClient.$extends`/interceptor touching every query) is its own scoped, higher-risk task — logged to `docs/implementation/blockers.md` for Module 3 (Security Hardening) rather than folded in here. |
+
+### 10.6 Load testing
+
+Extended `apps/api/benchmarks/run-benchmarks.js` with 3 new scenarios
+covering modules built since Milestone 12: `projects` (`GET /projects`),
+`finance` (`GET /vendors`), `prompts` (`GET /prompt-templates`).
+Deliberately excludes every AI-generation endpoint (proposal-generator,
+requirement-analyzer, task-generator, content-assistant, email-assistant,
+project-estimator) — they call the live Anthropic API, which has no
+credit balance in this environment (a confirmed, real 502 on every call,
+not a bug), so benchmarking them would measure "how fast does this
+fail," not real performance.
+
+**Methodology finding, caught before trusting any result** (same
+"verify, don't assume" discipline as Milestone 12's own `path`/`url`
+bug): the first run against the existing dev server returned 429 on
+~95% of requests across every scenario, including `login` (4 real 200s
+out of ~1721 requests) — `RATE_LIMIT_MAX=100`/`RATE_LIMIT_WINDOW_MS=60000`
+(the app's own default) throttled the benchmark's own 10-connections/10s
+load well before Milestone 12's original 6 scenarios were re-measured.
+Not a regression — Milestone 12's own original run predates this
+rate-limiting config, or ran under different conditions; either way, a
+benchmark run needs the SAME kind of environment awareness Milestone 12
+already flagged for `NODE_ENV`/tenant-header. Fixed for this run only (no
+application code change) by starting a second, temporary server instance
+(port 4010, `RATE_LIMIT_MAX=100000`) for the benchmark's duration, then
+stopping it — the running dev server (port 4000) was left untouched
+throughout.
+
+| Scenario | req/sec | p50 (ms) | p95 (ms) | p99 (ms) | errors |
+|---|---|---|---|---|---|
+| login | 299.3 | 30 | 56 | 61 | 0\* |
+| catalog (`GET /categories`) | 113.9 | 83 | 122 | 142 | 0 |
+| orders (`GET /orders`) | 114.5 | 82 | 142 | 161 | 0 |
+| dashboard (`GET /dashboard/overview`) | 74.9 | 124 | 199 | 308 | 0 |
+| billing (`GET /invoices`) | 123.8 | 77 | 119 | 139 | 0 |
+| crm (`GET /leads`) | 125.8 | 75 | 117 | 143 | 0 |
+| projects (`GET /projects`) | 127.5 | 74 | 134 | 148 | 0 |
+| finance (`GET /vendors`) | 59.1 | 114 | 457 | 514 | 0 |
+| prompts (`GET /prompt-templates`) | 115.5 | 81 | 144 | 158 | 0 |
+
+\* `login` still shows a separate, dedicated throttle (2989 `429`s across
+the run) even with `RATE_LIMIT_MAX` raised — a stricter brute-force guard
+on the login route specifically, independent of the general API rate
+limit. Correct, deliberate security behavior, not a bug to fix here.
+
+**Honest reading:** this is a single run, not a before/after — the
+index/pool changes above don't move the needle at this seed dataset's
+scale (§10.1's own `EXPLAIN ANALYZE` caveat), so a literal before/after
+comparison would show only run-to-run noise, not a real signal. `finance`
+(`GET /vendors`) is the one outlier (59 req/sec vs. ~115-127 for
+comparable endpoints, p95/p99 several times higher) — worth watching if
+it recurs, but a single dev-mode run against a freshly-started server
+(first-request JIT/compile warm-up, matching Milestone 12's own
+documented catalog p95/p99 spike) isn't enough to call it a regression
+without a repeat measurement. Documented rather than discarded, per "no
+silent truncation." `dashboard` remains the slowest genuine READ
+endpoint, consistent with Milestone 12's own finding (widest fan-out).
+
+### 10.7 Validation summary
+
+`pnpm --filter @antrique/api typecheck`/`lint`/`test` all clean (10 test
+suites touched, 15 new tests added — cursor-mode repository/service specs
+for AuditLog and Notification, `markAllRead()` repository/service/
+controller specs — all pre-existing specs in those suites pass
+unmodified, confirming the additive-only claim in §10.1-§10.4). Migration
+applied against the live local Postgres instance and verified via
+`EXPLAIN ANALYZE` (§10.1). `openapi.json` regenerated and diffed against
+its pre-change version: 0 removed fields, 1 changed (a documentation
+string), confirming the frozen-contract-compatible, additive-only claim
+in §10.3.

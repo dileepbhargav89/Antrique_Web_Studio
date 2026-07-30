@@ -3,7 +3,7 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete — see `docs/architecture/performance.md` §10**
 
 **Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
 (Email Assistant) was already fully built, tested, and wired in — module,
@@ -98,6 +98,36 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 1 (API Performance) (`apps/api`)** — user handed over
+  a 15-module "Phase 10 — Production Engineering, Scalability & Platform
+  Hardening" spec; renumbered to Phase 10 per the user's own choice
+  (Phase 9/Finance stays Phase 9, paused, not renumbered), Module 1
+  chosen as the starting point. Read `docs/architecture/performance.md`
+  first and found a full performance-engineering pass ("Milestone 12")
+  already happened on 2026-07-22 — this module extends that audit to
+  everything built since (Phase 7-9) rather than redoing it. New
+  migration `20260730170000_add_module1_performance_indexes` (3 real
+  missing composite indexes: Vendor, InventoryItem, Notification — 11 of
+  13 models checked already had the right index). Explicit, tunable
+  connection-pool config (`DATABASE_POOL_MAX`/`_IDLE_TIMEOUT_MS`/
+  `_CONNECTION_TIMEOUT_MS`) replacing an unexamined `pg.Pool` default.
+  Additive, opt-in cursor pagination (`CursorPaginationQueryDto`) for
+  AuditLog/Notification only — not all ~35 list endpoints, since the API
+  contract is frozen and every other endpoint is already page-capped.
+  One new batch endpoint, `PATCH /notifications/read-all`
+  (`updateMany()`-backed) — the only safe batch-write candidate found;
+  every module built since Milestone 12 was grepped for N+1/unbatched-
+  write patterns and came back clean. Extended `benchmarks/
+  run-benchmarks.js` with 3 new scenarios (projects/finance/prompts),
+  caught and worked around a rate-limiting methodology issue before
+  trusting the results (see performance.md §10.6). Full writeup:
+  `docs/architecture/performance.md` §10; decisions.md has the "why"
+  behind each scoping call. Real gap found and deliberately NOT fixed
+  here (out of scope, logged to blockers.md for Module 3 instead): RLS's
+  documented `SET LOCAL` contract is never actually issued by the app.
+  `pnpm --filter @antrique/api typecheck`/`lint`/`test` all clean, 10
+  test suites touched, 15 new tests, `openapi.json` diffed
+  additive-only (0 removed fields).
 - **Phase 9, Module 1, Step 1 (Vendor Management) (`apps/api` + `apps/web`)**
   — first Phase 9 module, scoped and approved with the user before
   starting (full 7-step Module 1 roadmap in the approved plan; only Step
@@ -4266,19 +4296,20 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. **DONE (2026-07-30):** all of Phase 7/8/9-Step-1/apps/web that sat
-   uncommitted since the `v1.0.0` tag is now committed — 17 logical
-   commits, see `git log v1.0.0..HEAD` or decisions.md's 2026-07-30
-   entry. `pnpm typecheck` verified clean across all 5 packages
-   afterward. **Phase 10 — Production Engineering, Scalability & Platform
-   Hardening** now starts (15 modules: API perf, frontend perf, security
-   hardening, auth/session security, observability, monitoring,
-   background jobs, caching, DB reliability, CI/CD, Docker/infra,
-   testing, docs, tech debt, readiness report — full spec from the user,
-   not yet copied into its own doc). Phase 9 (Finance) is paused, not
-   renumbered — Vendor Management (Step 1) stays done, Purchase Orders
-   (Step 2) stays next whenever Finance resumes. Module 1 (API
-   Performance) is the user's chosen starting point.
+1. **DONE (2026-07-30):** Phase 10, Module 1 (API Performance) — see this
+   file's own newest log entry and `docs/architecture/performance.md`
+   §10 for the full writeup. **Module 2 (Frontend Performance)** is the
+   natural next step in the same Phase 10 initiative (15 modules total:
+   API perf ✅, frontend perf, security hardening, auth/session security,
+   observability, monitoring, background jobs, caching, DB reliability,
+   CI/CD, Docker/infra, testing, docs, tech debt, readiness report — full
+   spec from the user, not yet copied into its own doc) — but confirm
+   with the user before starting Module 2 vs. resuming Phase 9 (Finance,
+   paused) vs. something else; the user hasn't specified sequencing past
+   "start with Module 1." One real, out-of-scope finding from Module 1 to
+   route into **Module 3 (Security Hardening)** when it starts: RLS's
+   documented `SET LOCAL` contract is never actually wired into Prisma —
+   see `docs/implementation/blockers.md`'s 2026-07-30 entry.
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

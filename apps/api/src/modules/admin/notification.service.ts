@@ -3,6 +3,7 @@ import { NotificationRepository } from './repositories/notification.repository';
 import { AuditRepository } from './repositories/audit.repository';
 import { NotificationListQueryDto } from './dto/notification-list-query.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
+import { MarkNotificationsReadResponseDto } from './dto/mark-notifications-read-response.dto';
 import { toNotificationResponseDto } from './mappers/notification.mapper';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { NOTIFICATION_RETRYABLE_STATUSES } from './constants/admin.constant';
@@ -181,6 +182,21 @@ export class NotificationService {
     return toNotificationResponseDto(updated);
   }
 
+  // Phase 10, Module 1 (Performance) — the "Batch operations" deliverable:
+  // one real, safe bulk write (see MarkNotificationsReadDto's own
+  // comment for why this was the one candidate that qualified), audit-
+  // logged like every other mutation this service exposes (retry()).
+  async markAllRead(tenantId: string, userId?: string): Promise<MarkNotificationsReadResponseDto> {
+    const count = await this.notificationRepository.markAllRead(tenantId, userId);
+    await this.auditRepository.recordEvent({
+      tenantId,
+      action: 'notification.mark_all_read',
+      resourceType: 'notification',
+      after: { count, userId: userId ?? null } as Prisma.InputJsonValue,
+    });
+    return new MarkNotificationsReadResponseDto(count);
+  }
+
   async findById(id: string, tenantId: string): Promise<NotificationResponseDto> {
     const notification = await this.assertExists(id, tenantId);
     return toNotificationResponseDto(notification);
@@ -216,6 +232,25 @@ export class NotificationService {
           }
         : {}),
     };
+
+    // Phase 10, Module 1 (Performance) — opt-in cursor mode, additive:
+    // `page`/`limit` behavior below is completely unchanged when `cursor`
+    // is absent. See CursorPaginationQueryDto's own comment.
+    if (query.cursor !== undefined) {
+      const { items, nextCursor } = await this.notificationRepository.findManyByCursor(
+        tenantId,
+        where,
+        query.cursor,
+        limit,
+      );
+      return new PaginatedResponseDto(
+        items.map(toNotificationResponseDto),
+        items.length,
+        page,
+        limit,
+        nextCursor,
+      );
+    }
 
     const { items, total } = await this.notificationRepository.findManyPaginated(
       tenantId,

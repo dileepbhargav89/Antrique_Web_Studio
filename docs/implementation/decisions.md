@@ -4526,4 +4526,53 @@ Format:
   commits); this phase's work will be tracked as Phase 10 in future
   progress.md entries.
 
+## 2026-07-30 — Phase 10, Module 1 (API Performance): extended Milestone 12's audit rather than redoing it, cursor pagination scoped to 2 tables only
+- **Decision:** before writing any code, read `docs/architecture/
+  performance.md` and discovered a full performance-engineering pass
+  ("Milestone 12") already happened on 2026-07-22, covering N+1
+  elimination/indexing/compression/caching/instrumentation/benchmarking
+  for the 8 modules that existed then. Scoped this module's work to
+  extend that audit to everything built since (Phase 7-9), not repeat
+  it: 3 real missing composite indexes (Vendor, InventoryItem,
+  Notification — see performance.md §10.1), explicit connection-pool
+  config (previously an unexamined `pg.Pool` default), additive opt-in
+  cursor pagination for AuditLog/Notification only (not all ~35 list
+  endpoints), and one new batch endpoint (`PATCH /notifications/read-all`).
+  Full writeup: `docs/architecture/performance.md` §10.
+- **Why:** the phase's own "Refactor only where it improves..." and
+  "Add only necessary" instructions argue directly against redoing
+  already-correct work. Cursor pagination was scoped down from "all list
+  endpoints" (the spec's literal wording) to just the 2 genuinely
+  unbounded/high-growth/append-only tables because (a) the API contract
+  is frozen (`CLAUDE.md`) — changing existing endpoints' pagination shape
+  isn't an option, and (b) every other list endpoint is already page-capped
+  at 100 rows with bounded result sets, so cursor mode would add
+  complexity with no real benefit there. Batch operations was scoped down
+  from "add bulk endpoints broadly" to one endpoint because auditing every
+  module built since Milestone 12 (grep for per-item DB-call loops) found
+  zero unsafe write loops to convert — the one write loop that does exist
+  (`task-generator.service.ts`'s `approve()`) is deliberately sequential
+  for real business-logic-per-item reasons, matching Milestone 12's own
+  precedent for correctly-sequential loops.
+- **Alternatives:** cursor pagination on all list endpoints (rejected —
+  breaks the frozen contract and adds complexity most endpoints don't
+  need); a broader sweep of new bulk endpoints (rejected — no real gap
+  found beyond notifications; would be feature-creep against "Do NOT
+  introduce unnecessary business features"); converting
+  `task-generator.service.ts`'s loop to `createMany()` (rejected — would
+  silently drop the per-task audit-log/notification side effects
+  `TaskService.create()` performs).
+- **Affects:** `apps/api/prisma/migrations/20260730170000_add_module1_performance_indexes/`,
+  `apps/api/prisma/schema.prisma`, `apps/api/src/config/database/
+  database.config.ts`, `apps/api/src/config/env.validation.ts`,
+  `apps/api/src/database/prisma.service.ts`, `apps/api/.env.example`,
+  `apps/api/src/common/dto/cursor-pagination-query.dto.ts` (new),
+  `apps/api/src/common/dto/paginated-response.dto.ts`,
+  `apps/api/src/modules/admin/{audit,notification}.{controller,service}.ts`,
+  `apps/api/src/modules/admin/repositories/{audit,notification}.repository.ts`,
+  `apps/api/src/modules/admin/dto/mark-notifications-read*.dto.ts` (new),
+  `apps/api/benchmarks/run-benchmarks.js`, `docs/architecture/
+  performance.md` §10, `docs/implementation/blockers.md` (RLS gap, logged
+  for Module 3 — see that entry).
+
 <!-- Add new decisions above this line as you build. -->

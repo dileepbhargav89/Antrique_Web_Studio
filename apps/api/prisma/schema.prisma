@@ -1288,6 +1288,10 @@ model Notification {
   @@index([userId, readAt])
   @@index([tenantId, createdAt])
   @@index([tenantId, status])
+  // Phase 10, Module 1 (Performance) — NotificationListQueryDto filters
+  // by userId AND status together (the "my unread notifications" case);
+  // neither existing composite covers both.
+  @@index([tenantId, userId, status])
   @@map("notifications")
 }
 
@@ -2159,6 +2163,13 @@ model InventoryItem {
   @@index([warehouseId])
   @@index([productVariantId])
   @@index([fabricId])
+  // Phase 10, Module 1 (Performance) — InventoryItemListQueryDto filters
+  // by warehouseId/productVariantId/fabricId independently but always
+  // tenant-scoped; these composites replace a bitmap-AND of two
+  // single-column indexes with one composite scan.
+  @@index([tenantId, warehouseId])
+  @@index([tenantId, productVariantId])
+  @@index([tenantId, fabricId])
   @@map("inventory_items")
 }
 
@@ -3334,5 +3345,9 @@ model Vendor {
   @@unique([tenantId, slug])
   @@index([tenantId])
   @@index([tenantId, status])
+  // Phase 10, Module 1 (Performance) — backs VendorListQueryDto's default
+  // `sortBy: 'createdAt'`, matching every sibling model's existing
+  // status+createdAt composite pairing.
+  @@index([tenantId, createdAt])
   @@map("vendors")
 }

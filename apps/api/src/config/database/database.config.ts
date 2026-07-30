@@ -10,5 +10,8 @@ export default registerAs('database', () => {
   return {
     url: env.DATABASE_URL,
     ssl: env.DATABASE_SSL,
+    poolMax: env.DATABASE_POOL_MAX,
+    poolIdleTimeoutMs: env.DATABASE_POOL_IDLE_TIMEOUT_MS,
+    poolConnectionTimeoutMs: env.DATABASE_POOL_CONNECTION_TIMEOUT_MS,
   };
 });

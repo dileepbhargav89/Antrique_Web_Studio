@@ -37,6 +37,38 @@ export class AuditRepository extends BaseRepository<PrismaService['auditLog']> {
     return this.findManyAndCount(this.prisma, { where: scopedWhere, orderBy, skip, take });
   }
 
+  // Phase 10, Module 1 (Performance) — opt-in cursor pagination (see
+  // CursorPaginationQueryDto's own comment for why `id < cursor, id DESC`
+  // is equivalent to `createdAt DESC` for a `uuid(7)` PK, and why no new
+  // index is needed: this rides the existing PK index). Fetches
+  // `take + 1` rows to determine `nextCursor` without a second COUNT
+  // query — an unbounded ledger's exact total isn't the point of cursor
+  // mode the way it is for `page`/`limit`.
+  async findManyByCursor(
+    tenantId: string,
+    where: Prisma.AuditLogWhereInput,
+    cursor: string | undefined,
+    take: number,
+  ) {
+    const scopedWhere: Prisma.AuditLogWhereInput = {
+      ...where,
+      tenantId,
+      ...(cursor ? { id: { lt: cursor } } : {}),
+    };
+    const rows = await this.delegate.findMany({
+      where: scopedWhere,
+      orderBy: { id: 'desc' },
+      take: take + 1,
+    });
+    const hasMore = rows.length > take;
+    const items = hasMore ? rows.slice(0, take) : rows;
+    // `hasMore` is only true when `items.length === take` (>= 1, per
+    // PaginationQueryDto's own @Min(1)), so `items` is always non-empty
+    // here — TS can't infer that invariant through the ternary above.
+    const nextCursor = hasMore ? (items[items.length - 1]?.id ?? null) : null;
+    return { items, nextCursor };
+  }
+
   recordEvent(data: Prisma.AuditLogUncheckedCreateInput) {
     return this.delegate.create({ data });
   }

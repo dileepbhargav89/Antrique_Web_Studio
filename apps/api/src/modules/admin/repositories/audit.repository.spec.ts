@@ -65,6 +65,63 @@ describe('AuditRepository', () => {
     });
   });
 
+  describe('findManyByCursor()', () => {
+    it('queries id DESC with no id filter when cursor is absent (first page)', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+
+      await repository.findManyByCursor(
+        TENANT_ID,
+        { action: 'order.created' } as never,
+        undefined,
+        20,
+      );
+
+      expect(prisma.auditLog.findMany).toHaveBeenCalledWith({
+        where: { action: 'order.created', tenantId: TENANT_ID },
+        orderBy: { id: 'desc' },
+        take: 21,
+      });
+    });
+
+    it('adds an id < cursor filter when a cursor is given', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+
+      await repository.findManyByCursor(TENANT_ID, {} as never, 'log-20', 20);
+
+      expect(prisma.auditLog.findMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT_ID, id: { lt: 'log-20' } },
+        orderBy: { id: 'desc' },
+        take: 21,
+      });
+    });
+
+    it('returns nextCursor as the last item id and trims the extra lookahead row when more pages exist', async () => {
+      const rows = Array.from({ length: 21 }, (_, i) => ({ id: `log-${20 - i}` }));
+      const prisma = createFakePrisma();
+      (prisma.auditLog.findMany as jest.Mock).mockResolvedValueOnce(rows);
+      const repository = createRepository(prisma);
+
+      const result = await repository.findManyByCursor(TENANT_ID, {} as never, undefined, 20);
+
+      expect(result.items).toHaveLength(20);
+      expect(result.nextCursor).toBe('log-1');
+    });
+
+    it('returns nextCursor null when fewer rows than the page size come back (last page)', async () => {
+      const rows = [{ id: 'log-2' }, { id: 'log-1' }];
+      const prisma = createFakePrisma();
+      (prisma.auditLog.findMany as jest.Mock).mockResolvedValueOnce(rows);
+      const repository = createRepository(prisma);
+
+      const result = await repository.findManyByCursor(TENANT_ID, {} as never, undefined, 20);
+
+      expect(result.items).toEqual(rows);
+      expect(result.nextCursor).toBeNull();
+    });
+  });
+
   describe('recordEvent()', () => {
     it('creates an AuditLog row from the given data', async () => {
       const prisma = createFakePrisma();

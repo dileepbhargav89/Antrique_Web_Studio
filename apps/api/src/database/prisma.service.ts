@@ -56,7 +56,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     private readonly logger: Logger,
   ) {
     super({
-      adapter: new PrismaPg({ connectionString: dbConfig.url, ssl: dbConfig.ssl }),
+      // Phase 10, Module 1 (Performance) — `max`/`idleTimeoutMillis`/
+      // `connectionTimeoutMillis` were previously omitted entirely, so
+      // `pg.Pool`'s own undocumented default (`max: 10`, no connection
+      // timeout — a saturated pool would hang instead of failing fast)
+      // applied with nobody having decided that was right. Now explicit
+      // and tunable via the `database` config namespace (env.validation.ts).
+      adapter: new PrismaPg({
+        connectionString: dbConfig.url,
+        ssl: dbConfig.ssl,
+        max: dbConfig.poolMax,
+        idleTimeoutMillis: dbConfig.poolIdleTimeoutMs,
+        connectionTimeoutMillis: dbConfig.poolConnectionTimeoutMs,
+      }),
       // `emit: 'event'` (not `'stdout'`) — routes every query event
       // through `this.$on('query', ...)` below instead of printing
       // directly to the console, so it goes through this app's own

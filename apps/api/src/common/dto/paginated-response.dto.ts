@@ -9,5 +9,11 @@ export class PaginatedResponseDto<T> {
     readonly total: number,
     readonly page: number,
     readonly limit: number,
+    // Phase 10, Module 1 (Performance) — set only by the two endpoints
+    // that support opt-in cursor pagination (AuditLog, Notification).
+    // `undefined` for every other endpoint, which `JSON.stringify` omits
+    // entirely — existing clients' response bodies are byte-for-byte
+    // unchanged. `null` means "cursor mode was used, no further pages."
+    readonly nextCursor?: string | null,
   ) {}
 }

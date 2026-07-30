@@ -1,12 +1,15 @@
 import { IsDateString, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
-import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
+import { CursorPaginationQueryDto } from '../../../common/dto/cursor-pagination-query.dto';
 import { AUDIT_LOG_SORT_FIELDS } from '../constants/admin.constant';
 
 // Covers this milestone's own "Audit" Controllers: "List, Search" —
 // filters: User (actorUserId), Date range, Search (action/resourceType/
 // resourceId), Pagination, Sorting. "Status"/"Module" (the shared
 // Filtering list) don't apply here — `AuditLog` has neither concept.
-export class AuditLogListQueryDto extends PaginationQueryDto {
+// Extends CursorPaginationQueryDto (Phase 10, Module 1) — AuditLog is an
+// append-only, high-growth ledger, one of the two tables that support the
+// additive opt-in `cursor` param; see that DTO's own comment.
+export class AuditLogListQueryDto extends CursorPaginationQueryDto {
   @IsOptional()
   @IsUUID()
   actorUserId?: string;
