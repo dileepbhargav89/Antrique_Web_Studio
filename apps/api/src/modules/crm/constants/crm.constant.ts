@@ -8,6 +8,17 @@ export const CUSTOMER_NOTE_ROUTE = 'customer-notes';
 export const CUSTOMER_ACTIVITY_ROUTE = 'customer-activities';
 export const FOLLOW_UP_ROUTE = 'follow-ups';
 export const CUSTOMER_TAG_ROUTE = 'customer-tags';
+// Phase 7 (Enterprise CRM/Project-Management) — Client already fully
+// modeled since Phase 1.1A with zero application-layer consumers (same
+// "found already modeled, first real repository" situation Lead itself
+// was in before Milestone 9). Flat top-level route, same convention as
+// every entity above.
+export const CLIENT_ROUTE = 'clients';
+// Phase 7 (Enterprise CRM/Project-Management), Phase 2 — the closest
+// existing model to the brief's "Proposal" concept; no separate Proposal
+// model exists (confirmed via schema-wide search) — see quotation.service.ts's
+// own header comment.
+export const QUOTATION_ROUTE = 'quotations';
 
 // Allowed `sortBy` values for each list endpoint's query DTO — an
 // allowlist, not raw client input, same discipline as every other
@@ -17,6 +28,34 @@ export const CUSTOMER_NOTE_SORT_FIELDS = ['createdAt'] as const;
 export const CUSTOMER_ACTIVITY_SORT_FIELDS = ['createdAt'] as const;
 export const FOLLOW_UP_SORT_FIELDS = ['createdAt', 'dueAt', 'status'] as const;
 export const CUSTOMER_TAG_SORT_FIELDS = ['createdAt', 'name'] as const;
+export const CLIENT_SORT_FIELDS = ['createdAt', 'name', 'status'] as const;
+export const QUOTATION_SORT_FIELDS = [
+  'createdAt',
+  'quotationNumber',
+  'status',
+  'totalAmount',
+] as const;
+
+// "Quote-wizard output" (schema.prisma's own comment) — leadId/clientId
+// both nullable, exactly one must be set (a fresh-prospect quote vs. a
+// repeat-business quote), enforced at the application layer (a hand-
+// written cross-column CHECK also exists at the DB level —
+// `quotations_lead_xor_client_check`, Prisma's schema DSL has no
+// cross-column CHECK support).
+export const QUOTATION_TERMINAL_STATUSES = [
+  'ACCEPTED',
+  'REJECTED',
+  'EXPIRED',
+  'CONVERTED',
+] as const;
+// Only DRAFT is editable — narrower than Lead's own editable window
+// (NEW/QUALIFIED/QUOTED), a deliberate call: once a quotation is SENT, a
+// silent edit would misrepresent what the recipient actually saw. Same
+// per-tenant-per-year sequence pattern as INVOICE_NUMBER_PREFIX
+// (billing.constant.ts) — "Q" instead of "INV".
+export const QUOTATION_EDITABLE_STATUSES = ['DRAFT'] as const;
+export const QUOTATION_NUMBER_PREFIX = 'Q';
+export const QUOTATION_NUMBER_GENERATION_MAX_ATTEMPTS = 5;
 
 // Lead statuses "Archived leads immutable"/conversion both treat as
 // terminal — no further mutation via update()/convert()/archive() once

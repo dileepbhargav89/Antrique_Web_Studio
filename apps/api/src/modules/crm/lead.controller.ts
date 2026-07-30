@@ -17,6 +17,7 @@ import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { ArchiveLeadDto } from './dto/archive-lead.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
+import { ConvertLeadToClientDto } from './dto/convert-lead-to-client.dto';
 import { LeadListQueryDto } from './dto/lead-list-query.dto';
 import { LeadResponseDto } from './dto/lead-response.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -152,5 +153,28 @@ export class LeadController {
     @Tenant() tenant: TenantContext,
   ): Promise<LeadResponseDto> {
     return this.leadService.convert(id, dto, tenant.tenantId);
+  }
+
+  @Post(':id/convert-to-client')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(PERMISSION.LEADS_WRITE)
+  @ApiOperation({
+    summary: 'Convert a lead into a client (agency-engagement pipeline)',
+    description:
+      'Terminal — always creates a new Client record (never links an existing one — Client has no ' +
+      'unique constraint to match against) and records a LEAD_CONVERTED activity event. Distinct ' +
+      'from POST /leads/:id/convert, which converts to a Customer (the unrelated e-commerce pipeline).',
+  })
+  @ApiOkResponse({ type: LeadResponseDto })
+  @ApiStandardAuthErrors()
+  @ApiValidationError()
+  @ApiNotFoundError('lead')
+  convertToClient(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ConvertLeadToClientDto,
+    @Tenant() tenant: TenantContext,
+  ): Promise<LeadResponseDto> {
+    return this.leadService.convertToClient(id, dto, tenant.tenantId);
   }
 }

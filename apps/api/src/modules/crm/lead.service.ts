@@ -7,16 +7,23 @@ import {
 import { LeadRepository } from './repositories/lead.repository';
 import { CustomerActivityRepository } from './repositories/customer-activity.repository';
 import { CustomerRepository } from '../orders/repositories/customer.repository';
+import { ClientRepository } from './repositories/client.repository';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
+import { ConvertLeadToClientDto } from './dto/convert-lead-to-client.dto';
 import { ArchiveLeadDto } from './dto/archive-lead.dto';
 import { LeadListQueryDto } from './dto/lead-list-query.dto';
 import { LeadResponseDto } from './dto/lead-response.dto';
 import { toLeadResponseDto } from './mappers/lead.mapper';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { LEAD_TERMINAL_STATUSES } from './constants/crm.constant';
-import { CustomerActivityType, CustomerStatus, LeadStatus } from '../../../generated/prisma/enums';
+import {
+  ClientStatus,
+  CustomerActivityType,
+  CustomerStatus,
+  LeadStatus,
+} from '../../../generated/prisma/enums';
 import { Prisma } from '../../../generated/prisma/client';
 import { isUniqueConstraintViolation } from '../../utils/prisma-error.util';
 
@@ -34,6 +41,11 @@ import { isUniqueConstraintViolation } from '../../utils/prisma-error.util';
 //   records a `LEAD_CONVERTED` `CustomerActivity`, all inside ONE
 //   transaction — "Lead conversion creates CustomerActivity," this
 //   milestone's own explicit rule.
+// - "Convert Lead → Client" (Phase 7, Enterprise CRM/Project-Management)
+//   — a second, unrelated conversion path for the agency-engagement
+//   pipeline (Lead → Client → Project), as opposed to the one-off
+//   e-commerce purchase path above. Always CREATES a new Client (never
+//   finds-and-links) — see `convertToClient()`'s own comment for why.
 // - "Archive" — a terminal status, distinct from Convert; "Archived
 //   leads immutable" is enforced by `assertMutable()`, shared by
 //   `update()`/`convert()`/`archive()` itself (an already-archived lead
@@ -44,6 +56,7 @@ export class LeadService {
     private readonly leadRepository: LeadRepository,
     private readonly customerRepository: CustomerRepository,
     private readonly customerActivityRepository: CustomerActivityRepository,
+    private readonly clientRepository: ClientRepository,
   ) {}
 
   async create(dto: CreateLeadDto, tenantId: string): Promise<LeadResponseDto> {
@@ -238,6 +251,65 @@ export class LeadService {
         relatedLeadId: id,
         type: CustomerActivityType.LEAD_CONVERTED,
         summary: `Lead ${existing.contactEmail} converted to customer`,
+        metadata: dto.note ? { note: dto.note } : undefined,
+      });
+
+      return result;
+    });
+
+    return toLeadResponseDto(updated);
+  }
+
+  // "Convert Lead -> Client" — the agency-pipeline counterpart to
+  // convert() (which creates a Customer, the unrelated e-commerce
+  // lifecycle — see this file's header comment). Always creates a NEW
+  // Client (never finds-and-links an existing one): unlike Customer,
+  // Client has no unique constraint to back a race-safe find-or-create
+  // (confirmed via schema.prisma — no `@@unique` on name/email), so
+  // attempting one here would fabricate a guarantee the schema doesn't
+  // provide. `Client.name` is required; resolved from the request body
+  // first, falling back to the lead's own `organization` — a lead with
+  // neither set can't be converted to a Client without the caller
+  // supplying one.
+  async convertToClient(
+    id: string,
+    dto: ConvertLeadToClientDto,
+    tenantId: string,
+  ): Promise<LeadResponseDto> {
+    const existing = await this.leadRepository.findActiveById(id, tenantId);
+    if (!existing) {
+      throw new NotFoundException(`Lead ${id} not found`);
+    }
+    this.assertMutable(existing.status);
+
+    const clientName = dto.name ?? existing.organization;
+    if (!clientName) {
+      throw new BadRequestException(
+        'Client name is required — this lead has no organization set, so one must be provided in the request body',
+      );
+    }
+
+    const updated = await this.leadRepository.runInTransaction(async (tx) => {
+      const client = await this.clientRepository.createInTx(tx, {
+        tenantId,
+        name: clientName,
+        primaryEmail: dto.primaryEmail ?? existing.contactEmail,
+        primaryPhone: dto.primaryPhone,
+        website: dto.website,
+        industry: existing.industry,
+        status: ClientStatus.ACTIVE,
+      });
+
+      const result = await this.leadRepository.updateInTx(tx, id, {
+        status: LeadStatus.CONVERTED,
+        convertedClientId: client.id,
+      });
+
+      await this.customerActivityRepository.createInTx(tx, {
+        tenantId,
+        relatedLeadId: id,
+        type: CustomerActivityType.LEAD_CONVERTED,
+        summary: `Lead ${existing.contactEmail} converted to client "${clientName}"`,
         metadata: dto.note ? { note: dto.note } : undefined,
       });
 

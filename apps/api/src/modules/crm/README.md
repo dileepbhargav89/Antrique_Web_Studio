@@ -5,7 +5,8 @@ not duplicate customer, order, or authentication logic" (this
 milestone's own framing). Five controller/service/repository triads —
 Lead, CustomerNote, CustomerActivity, FollowUp, and CustomerTag (the
 last one added beyond this milestone's own named list — see "Why a 5th
-triad" below) — on top of `Lead` (reused, not duplicated — see below),
+triad" below) — plus a sixth, `Client`, added by Phase 7 (Enterprise
+CRM/Project-Management — see "Client" below) — on top of `Lead` (reused, not duplicated — see below),
 `LeadSource`, `CustomerNote`, `CustomerActivity`, `FollowUpTask`,
 `CustomerTag`, `CustomerTagAssignment`. Tenant-isolated, RBAC-protected,
 one Prisma transaction threaded across the `OrdersModule` boundary for
@@ -85,6 +86,69 @@ the way Milestone 8 named one for Cancel, so it stays under
   `LeadService` resolves the legacy NOT NULL `source` string from the
   looked-up `LeadSource.name` (kept in sync); when only `source` is
   given, that's used as-is. Rejects when neither is provided.
+
+### Client (Phase 7 — Enterprise CRM/Project-Management)
+
+`client.controller.ts`/`client.service.ts`/`repositories/client.repository.ts`
+— the agency's customer-organization profile, found already fully
+modeled since Phase 1.1A with **zero application-layer consumers**, the
+same situation `Lead` itself was in before Milestone 9. Create/List/Get/
+Update only — **no Delete route** (no `clients:delete` permission was
+ever seeded); moving `ACTIVE` → `INACTIVE`/`ARCHIVED` happens through
+`PATCH /clients/:id`'s own `status` field, not a dedicated action route.
+No `@@unique` constraint exists on `Client` (confirmed via schema read),
+so unlike Category/Collection/Product's slug-based create there's no
+409-on-duplicate case to document — any number of clients can share a
+name.
+
+**`LeadService.convertToClient()`** (`POST /leads/:id/convert-to-client`)
+— a second, independent conversion path alongside the pre-existing
+`convert()` (→ `Customer`, the unrelated e-commerce pipeline). Always
+**creates** a new `Client`, never finds-and-links an existing one —
+`Client` has no unique constraint to make a race-safe find-or-create
+possible the way `Customer`'s email uniqueness does for `convert()`.
+`Client.name` resolves from the request body first, falling back to the
+lead's own `organization`; a lead with neither set is rejected with a
+clear `400` rather than silently defaulting to something like the
+contact's own name. Same transactional shape as `convert()`
+(`LeadRepository.runInTransaction()`, sets `convertedClientId` +
+`status: CONVERTED`, records a `LEAD_CONVERTED` `CustomerActivity`).
+
+### Quotation — "Proposal Management" (Phase 7, Phase 2)
+
+`quotation.controller.ts`/`quotation.service.ts`/
+`repositories/quotation.repository.ts` — built on the **existing**
+`Quotation`/`QuotationItem` model (schema's own doc comment: "Quote-
+wizard output"), the closest match to the brief's "Proposal" concept —
+**no separate `Proposal` model exists anywhere in the schema**, confirmed
+via a schema-wide search. Create/List/Get/Update (DRAFT only, via
+`assertEditable()`) plus 3 terminal action routes: `POST :id/send`
+(DRAFT → SENT — generates a PDF via the new `DocumentPdfService`
+(`apps/api/src/pdf/`), stores it via the **existing** `StorageService`
+(unchanged — already accepted an arbitrary buffer/contentType, not just
+images), fire-and-forgets an email via the **existing**
+`EmailService`/`JobRunner` to whichever of the lead/client has a
+resolvable email address), `POST :id/accept` (SENT → ACCEPTED), `POST
+:id/reject` (SENT → REJECTED). `leadId`/`clientId` XOR enforced in
+`assertExactlyOneSubject()` (the DB-level `quotations_lead_xor_client_check`
+CHECK backs this too). Item `amount`/quotation `subtotalAmount`/
+`totalAmount` are always computed server-side (`Prisma.Decimal`
+arithmetic, never trusted from the client) — same discipline
+`InvoiceService.createFromOrder()` already established.
+`quotationNumber` generated via the same bounded retry-on-collision loop
+as `InvoiceService.generateInvoiceNumber()`.
+
+One additive schema column this phase needed: `Quotation.pdfUrl String?`
+— nothing before this phase generated a PDF, so nothing needed anywhere
+to store its URL. Migration: `20260729080000_add_quotation_pdf_url`.
+
+**Descoped, flagged honestly, not built this phase**: proposal
+"templates" (would need a new model), "revision history" (no
+version-chain field exists on `Quotation` — the existing `version`
+column is the optimistic-lock counter, a different concept; reusing it
+for revision history would conflate the two), attachments on a
+quotation (no join table exists between `Quotation` and any
+file/document concept).
 
 ### CustomerNote
 
@@ -224,6 +288,22 @@ internally, never through a client-facing route), `follow_up_tasks:read`/
 No `leads:delete` — this milestone's own "Lead" Controllers list has no
 delete endpoint. `admin`/`super_admin` get every permission automatically
 (`PERMISSIONS.map(p => p.key)`, unchanged by this milestone).
+
+**Phase 7 addition** — `clients:read`/`clients:write` (both already
+seeded since Phase 1.1B, dead until now — no new seed row needed, only
+new `PERMISSION` constant entries + grants): `manager`/`sales` get both
+read+write, `project_manager` keeps its pre-existing read-only grant
+(consistent with its own "read-only on CRM and billing" description),
+`admin`/`super_admin` get both automatically. `customer` (the
+client-portal role) gets **no** `clients:*` grant — a company profile is
+an internal view, not something a client-portal user browses. No
+`clients:delete` key exists (none was ever seeded).
+
+**Phase 7, Phase 2 addition** — `quotations:read`/`quotations:write`
+(both already seeded since Phase 1.1B; `sales` already had both grants,
+`project_manager`/`manager`/`customer` already had the read grant —
+this phase added `quotations:write` to `manager` too, consistent with
+the `clients:write` addition above). No `quotations:delete` key exists.
 
 ## Tenant isolation
 

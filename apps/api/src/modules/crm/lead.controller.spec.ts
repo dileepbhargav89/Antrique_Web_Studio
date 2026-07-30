@@ -4,8 +4,10 @@ import { LeadService } from './lead.service';
 import { LeadRepository } from './repositories/lead.repository';
 import { CustomerRepository } from '../orders/repositories/customer.repository';
 import { CustomerActivityRepository } from './repositories/customer-activity.repository';
+import { ClientRepository } from './repositories/client.repository';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
+import { ConvertLeadToClientDto } from './dto/convert-lead-to-client.dto';
 import { ArchiveLeadDto } from './dto/archive-lead.dto';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
@@ -38,7 +40,7 @@ function createLeadRow(overrides: Partial<Record<string, unknown>> = {}) {
 
 // Same reasoning as modules/orders/order.controller.spec.ts — resolves
 // through a real Nest TestingModule so DI wiring itself is verified
-// (LeadController -> LeadService -> its three repository deps).
+// (LeadController -> LeadService -> its four repository deps).
 describe('LeadController', () => {
   async function createController() {
     const moduleRef = await Test.createTestingModule({
@@ -68,6 +70,10 @@ describe('LeadController', () => {
         {
           provide: CustomerActivityRepository,
           useValue: { createInTx: jest.fn(async () => ({})) },
+        },
+        {
+          provide: ClientRepository,
+          useValue: { createInTx: jest.fn(async () => ({ id: 'client-1', name: 'Acme Inc' })) },
         },
         { provide: TokenService, useValue: { verifyAccessToken: jest.fn() } },
         {
@@ -116,5 +122,14 @@ describe('LeadController', () => {
     const result = await controller.archive('lead-1', new ArchiveLeadDto(), TENANT);
 
     expect(result.id).toBe('lead-1');
+  });
+
+  it('delegates convertToClient() with the resolved tenantId', async () => {
+    const controller = await createController();
+    const dto = Object.assign(new ConvertLeadToClientDto(), { name: 'Acme Inc' });
+
+    const result = await controller.convertToClient('lead-1', dto, TENANT);
+
+    expect(result.status).toBe(LeadStatus.CONVERTED);
   });
 });

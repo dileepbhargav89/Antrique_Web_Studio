@@ -3,10 +3,12 @@ import { LeadService } from './lead.service';
 import { LeadRepository } from './repositories/lead.repository';
 import { CustomerRepository } from '../orders/repositories/customer.repository';
 import { CustomerActivityRepository } from './repositories/customer-activity.repository';
+import { ClientRepository } from './repositories/client.repository';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { ArchiveLeadDto } from './dto/archive-lead.dto';
 import { ConvertLeadDto } from './dto/convert-lead.dto';
+import { ConvertLeadToClientDto } from './dto/convert-lead-to-client.dto';
 import { LeadStatus } from '../../../generated/prisma/enums';
 import { Prisma } from '../../../generated/prisma/client';
 
@@ -63,6 +65,13 @@ function createFakeActivityRepository(overrides: Partial<Record<string, unknown>
   } as unknown as CustomerActivityRepository;
 }
 
+function createFakeClientRepository(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    createInTx: jest.fn(async () => ({ id: 'client-1', name: 'Acme Inc' })),
+    ...overrides,
+  } as unknown as ClientRepository;
+}
+
 function uniqueConstraintError() {
   return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
@@ -76,12 +85,14 @@ describe('LeadService', () => {
       leadRepository?: LeadRepository;
       customerRepository?: CustomerRepository;
       customerActivityRepository?: CustomerActivityRepository;
+      clientRepository?: ClientRepository;
     } = {},
   ) {
     return new LeadService(
       overrides.leadRepository ?? createFakeLeadRepository(),
       overrides.customerRepository ?? createFakeCustomerRepository(),
       overrides.customerActivityRepository ?? createFakeActivityRepository(),
+      overrides.clientRepository ?? createFakeClientRepository(),
     );
   }
 
@@ -357,6 +368,86 @@ describe('LeadService', () => {
       await expect(service.convert('missing', new ConvertLeadDto(), TENANT_ID)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('convertToClient()', () => {
+    it('creates a new Client (never finds-and-links) and records LEAD_CONVERTED', async () => {
+      const leadRepository = createFakeLeadRepository({
+        findActiveById: jest.fn(async () => createLeadRow({ organization: 'Acme Inc' })),
+      });
+      const clientRepository = createFakeClientRepository();
+      const activityRepository = createFakeActivityRepository();
+      const service = createService({
+        leadRepository,
+        clientRepository,
+        customerActivityRepository: activityRepository,
+      });
+
+      await service.convertToClient('lead-1', new ConvertLeadToClientDto(), TENANT_ID);
+
+      expect(clientRepository.createInTx).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ tenantId: TENANT_ID, name: 'Acme Inc' }),
+      );
+      expect(leadRepository.updateInTx).toHaveBeenCalledWith(
+        expect.anything(),
+        'lead-1',
+        expect.objectContaining({ status: LeadStatus.CONVERTED, convertedClientId: 'client-1' }),
+      );
+      expect(activityRepository.createInTx).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'LEAD_CONVERTED', relatedLeadId: 'lead-1' }),
+      );
+    });
+
+    it("prefers the request body's name over the lead's own organization", async () => {
+      const leadRepository = createFakeLeadRepository({
+        findActiveById: jest.fn(async () => createLeadRow({ organization: 'Acme Inc' })),
+      });
+      const clientRepository = createFakeClientRepository();
+      const service = createService({ leadRepository, clientRepository });
+      const dto = Object.assign(new ConvertLeadToClientDto(), { name: 'Acme Holdings LLC' });
+
+      await service.convertToClient('lead-1', dto, TENANT_ID);
+
+      expect(clientRepository.createInTx).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ name: 'Acme Holdings LLC' }),
+      );
+    });
+
+    it('rejects when neither the request body nor the lead has a name', async () => {
+      const leadRepository = createFakeLeadRepository({
+        findActiveById: jest.fn(async () => createLeadRow({ organization: null })),
+      });
+      const service = createService({ leadRepository });
+
+      await expect(
+        service.convertToClient('lead-1', new ConvertLeadToClientDto(), TENANT_ID),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects converting an already-converted lead', async () => {
+      const leadRepository = createFakeLeadRepository({
+        findActiveById: jest.fn(async () => createLeadRow({ status: LeadStatus.CONVERTED })),
+      });
+      const service = createService({ leadRepository });
+
+      await expect(
+        service.convertToClient('lead-1', new ConvertLeadToClientDto(), TENANT_ID),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException when the lead does not exist', async () => {
+      const leadRepository = createFakeLeadRepository({
+        findActiveById: jest.fn(async () => null),
+      });
+      const service = createService({ leadRepository });
+
+      await expect(
+        service.convertToClient('missing', new ConvertLeadToClientDto(), TENANT_ID),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });
