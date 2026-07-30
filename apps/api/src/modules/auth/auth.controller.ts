@@ -2,7 +2,13 @@ import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { ApiValidationError } from '../../common/decorators/api-standard-responses.decorator';
-import { AUTH_ROUTE, LOGIN_THROTTLE_LIMIT, LOGIN_THROTTLE_TTL_MS } from './constants/auth.constant';
+import {
+  AUTH_ROUTE,
+  LOGIN_THROTTLE_LIMIT,
+  LOGIN_THROTTLE_TTL_MS,
+  REFRESH_THROTTLE_LIMIT,
+  REFRESH_THROTTLE_TTL_MS,
+} from './constants/auth.constant';
 import { AuthService } from './auth.service';
 import { LoginRequestDto } from './dto/login-request.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
@@ -67,10 +73,16 @@ export class AuthController {
     return this.authService.login(dto, tenant);
   }
 
+  // Phase 10, Module 3 (Security Hardening) — same reasoning as login's
+  // own throttle: a credential-exchange endpoint, previously sharing
+  // only the general app-wide default. See constants file for why the
+  // limit is looser than login's.
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: REFRESH_THROTTLE_LIMIT, ttl: REFRESH_THROTTLE_TTL_MS } })
   @ApiOperation({
     summary: 'Exchange a refresh token for a new access + refresh token pair',
+    description: `Rate-limited to ${REFRESH_THROTTLE_LIMIT} attempts per client per minute.`,
   })
   @ApiOkResponse({ type: RefreshResponseDto })
   @ApiUnauthorizedResponse({

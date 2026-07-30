@@ -1,9 +1,10 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../../generated/prisma/client';
+import { PrismaClient, Prisma } from '../../generated/prisma/client';
 import databaseConfig from '../config/database/database.config';
 import { LOGGER, Logger } from '../logging';
+import { TenantRlsContextService } from './tenant-rls-context.service';
 
 // Milestone 12 (Performance Engineering) — "database duration"/"slow
 // query logging." A query taking longer than this is unusual enough on
@@ -15,6 +16,12 @@ import { LOGGER, Logger } from '../logging';
 // being that slow, since a request is usually built from several
 // queries).
 const SLOW_QUERY_THRESHOLD_MS = 100;
+
+// Phase 10, Module 3 (Security Hardening) — the exact session variable
+// name `database-schema.md`'s own RLS strategy section documents and the
+// RLS policy migration (`20260717091500_row_level_security`) reads via
+// `current_setting('app.current_tenant_id', true)`.
+const TENANT_RLS_SETTING = 'app.current_tenant_id';
 
 // Prisma's generated `PrismaClient` is exported as BOTH a value (the
 // runtime class from `getPrismaClientClass()`) and a separate generic
@@ -49,11 +56,33 @@ interface DatabaseQueryEvent {
 // never `process.env` directly.
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  // Phase 10, Module 3 (Security Hardening) — a SEPARATE, plain
+  // `PrismaClient` (own adapter/pool, own connection string, NEVER
+  // `$extends()`-ed or property-patched) used ONLY to open the
+  // SET-LOCAL-wrapping transactions below. This is load-bearing, not
+  // incidental: an earlier version of this fix opened those transactions
+  // via `this.$transaction(...)`/`super.$transaction(...)` — but `tx`,
+  // the transaction-scoped client Prisma hands to that callback, is
+  // derived from the SAME client object it was opened on, so calling
+  // `this.$transaction(...)` on an instance whose own model-delegate
+  // properties are already patched (see the constructor below) produces
+  // a `tx` that ALSO carries those patches. Any `tx.someModel.method()`
+  // call inside then re-triggered the SAME `$allOperations` hook, which
+  // opened ANOTHER transaction, which produced ANOTHER patched `tx` —
+  // true infinite recursion, confirmed live: a single `GET /leads`-style
+  // request exhausted the entire connection pool and every request
+  // failed with Prisma's own "Unable to start a transaction in the given
+  // time" (P2028). `rawTxClient` never gets patched, so any `tx` it
+  // produces is genuinely raw — verified with a throwaway spike before
+  // committing to this shape (see decisions.md's 2026-07-30 RLS entry).
+  private readonly rawTxClient: PrismaClient;
+
   constructor(
     @Inject(databaseConfig.KEY)
     dbConfig: ConfigType<typeof databaseConfig>,
     @Inject(LOGGER)
     private readonly logger: Logger,
+    private readonly tenantRlsContext: TenantRlsContextService,
   ) {
     super({
       // Phase 10, Module 1 (Performance) — `max`/`idleTimeoutMillis`/
@@ -76,6 +105,155 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       // log line, not a second, differently-formatted output stream.
       log: [{ emit: 'event', level: 'query' }],
     });
+
+    // Own pool, same size budget as the primary connection (see class
+    // comment for why a second client is unavoidable here) — in the
+    // worst case this doubles real connections to at most 2×`poolMax`,
+    // still comfortably under Postgres's own default `max_connections`
+    // (100). The primary connection above stays in place for `$queryRaw`/
+    // `$executeRaw` call sites (which this fix doesn't intercept — see
+    // below) and the startup health check.
+    this.rawTxClient = new PrismaClient({
+      adapter: new PrismaPg({
+        connectionString: dbConfig.url,
+        ssl: dbConfig.ssl,
+        max: dbConfig.poolMax,
+        idleTimeoutMillis: dbConfig.poolIdleTimeoutMs,
+        connectionTimeoutMillis: dbConfig.poolConnectionTimeoutMs,
+      }),
+      // Same "database duration"/"slow query logging" treatment as the
+      // primary client below — every real query now runs through
+      // `rawTxClient` (see the `$allOperations` hook), so without this
+      // it would be entirely invisible to the app's own structured logs.
+      log: [{ emit: 'event', level: 'query' }],
+    });
+
+    // Closes the RLS gap flagged in Module 1 / blockers.md: every model
+    // call now runs through a `SET LOCAL`-equivalent `set_config(...,
+    // true)` for the current request's tenant (from
+    // `TenantRlsContextService`, seeded by `TenantMiddleware`), inside
+    // its own transaction on `rawTxClient` — RLS's own
+    // `current_setting('app.current_tenant_id', true)` predicate only
+    // ever sees a value when it was set inside the SAME transaction as
+    // the query.
+    //
+    // `$extends`'s `$allOperations` hook intercepts every model call —
+    // INCLUDING ones captured early by a repository (e.g.
+    // `BaseRepository`'s `delegate = prisma.someModel`, captured once at
+    // repository-construction time), because the interception happens by
+    // MONKEY-PATCHING this instance's own model-delegate properties
+    // below, not by repositories consuming a differently-typed client.
+    // Zero repository files change.
+    //
+    // No context (seed scripts, health checks, migrations, anything
+    // outside `TenantMiddleware`'s `run()`) → `query(args)` unchanged,
+    // no transaction wrapping, no overhead — RLS only activates when a
+    // request actually resolved a tenant.
+    //
+    // Raw SQL call sites (`$queryRaw`/`$executeRawUnsafe`, e.g.
+    // `InventoryRepository`'s aggregate queries) are NOT intercepted by
+    // this hook — Prisma's `$allOperations` only covers model-delegate
+    // operations. Every existing raw-SQL call site already interpolates
+    // `tenantId` directly into its own `WHERE` clause (confirmed during
+    // this module's own security audit — see decisions.md), so app-layer
+    // scoping already covers them; this is a known, documented gap in
+    // RLS's specific coverage, not in tenant isolation overall.
+    //
+    // Known, deliberate trade-off: `BaseRepository.findManyAndCount()`'s
+    // array-form `$transaction([findMany, count])` exists so both queries
+    // see the identical snapshot (its own doc comment). Once each of
+    // those two calls independently opens its own SET-LOCAL transaction
+    // via this hook, they see two independent (though near-simultaneous)
+    // snapshots instead of one shared one — under a rare concurrent write
+    // landing between them, `total` could technically disagree with
+    // `items` by one row. This is a display/pagination nicety, not a
+    // security property, and is judged an acceptable trade-off against
+    // the actual security value of RLS coverage on every read — see
+    // `BaseRepository.findManyAndCount()`'s own comment for the same
+    // note at that call site.
+    const extended = this.$extends({
+      query: {
+        $allModels: {
+          $allOperations: async ({ model, operation, args, query }) => {
+            const tenantId = this.tenantRlsContext.getContext()?.tenantId;
+            if (!tenantId || !model) {
+              return query(args);
+            }
+            return this.rawTxClient.$transaction(async (tx) => {
+              await tx.$executeRawUnsafe(
+                `SELECT set_config($1, $2, true)`,
+                TENANT_RLS_SETTING,
+                tenantId,
+              );
+              const delegate = (
+                tx as unknown as Record<string, Record<string, (a: unknown) => unknown>>
+              )[model]!;
+              return delegate[operation]!(args);
+            });
+          },
+        },
+      },
+    });
+
+    for (const key of Object.keys(this)) {
+      if (!key.startsWith('$') && key !== 'rawTxClient' && key in extended) {
+        (this as unknown as Record<string, unknown>)[key] = (
+          extended as unknown as Record<string, unknown>
+        )[key];
+      }
+    }
+  }
+
+  // Phase 10, Module 3 (Security Hardening) — overrides the INTERACTIVE
+  // (callback) form only; the array form (`$transaction([...])`, used by
+  // `findManyAndCount()`) passes through to `super.$transaction()`
+  // unchanged — each array member already went through the constructor's
+  // `$allOperations` hook individually when constructed (see that
+  // comment for the accepted snapshot-consistency trade-off).
+  //
+  // Opens on `rawTxClient`, same reasoning as the constructor's hook —
+  // opening on `this` (patched) would hand application code's own
+  // `runInTransaction(async (tx) => { tx.someModel.create(...) })`
+  // callbacks a `tx` that ALSO carries the patched properties, causing
+  // the exact same recursion. One `set_config()` call at the top of the
+  // transaction, not one per statement inside it — `SET LOCAL`/
+  // `set_config(..., true)` persists for the transaction's full
+  // duration, so every real repository method called on the SAME `tx`
+  // afterward (e.g. every `*InTx()` method — `OrderRepository
+  // .createInTx()`, `InvoiceRepository`'s equivalents) already sees it
+  // without needing its own wrap. This is also what application code's
+  // own `repository.runInTransaction(async (tx) => { ... })` methods
+  // (Order/Invoice/Payment/Lead/FollowUp/Quotation) route through — zero
+  // changes needed there either, since every one of them already calls
+  // `this.prisma.$transaction(work)` directly.
+  override $transaction<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    options?: {
+      maxWait?: number;
+      timeout?: number;
+      isolationLevel?: Prisma.TransactionIsolationLevel;
+    },
+  ): Promise<T>;
+  override $transaction<T extends Prisma.PrismaPromise<unknown>[]>(
+    arg: [...T],
+    options?: { isolationLevel?: Prisma.TransactionIsolationLevel },
+  ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
+  override $transaction(arg: unknown, options?: unknown): Promise<unknown> {
+    if (typeof arg === 'function') {
+      const tenantId = this.tenantRlsContext.getContext()?.tenantId;
+      const fn = arg as (tx: Prisma.TransactionClient) => Promise<unknown>;
+      return this.rawTxClient.$transaction(async (tx) => {
+        if (tenantId) {
+          await tx.$executeRawUnsafe(
+            `SELECT set_config($1, $2, true)`,
+            TENANT_RLS_SETTING,
+            tenantId,
+          );
+        }
+        return fn(tx);
+      }, options as never);
+    }
+    return super.$transaction(arg as never, options as never);
   }
 
   // Fail-fast, matching this project's established pattern
@@ -112,16 +290,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // logging/config/logger-options.config.ts), and anything crossing
     // `SLOW_QUERY_THRESHOLD_MS` additionally gets a `warn`, so a slow
     // query is never silently buried in `debug` noise.
-    (this as unknown as { $on: (event: 'query', cb: (e: DatabaseQueryEvent) => void) => void }).$on(
-      'query',
-      (event) => {
-        const metadata = { query: event.query, params: event.params, durationMs: event.duration };
-        this.logger.debug('Database query executed', metadata);
-        if (event.duration > SLOW_QUERY_THRESHOLD_MS) {
-          this.logger.warn('Slow database query', metadata);
-        }
-      },
-    );
+    //
+    // Registered on BOTH clients (Phase 10, Module 3) — since
+    // `rawTxClient` now runs every real model query (see the
+    // `$allOperations` hook), logging only `this` would make the
+    // majority of this app's actual database traffic invisible.
+    this.registerQueryLogging(this);
+    this.registerQueryLogging(this.rawTxClient);
+  }
+
+  private registerQueryLogging(client: PrismaClient): void {
+    (
+      client as unknown as { $on: (event: 'query', cb: (e: DatabaseQueryEvent) => void) => void }
+    ).$on('query', (event) => {
+      const metadata = { query: event.query, params: event.params, durationMs: event.duration };
+      this.logger.debug('Database query executed', metadata);
+      if (event.duration > SLOW_QUERY_THRESHOLD_MS) {
+        this.logger.warn('Slow database query', metadata);
+      }
+    });
   }
 
   // Runs when Nest's shutdown hooks fire (SIGTERM/SIGINT — enabled in
@@ -129,6 +316,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   // connection pool instead of dropping it mid-request.
   async onModuleDestroy(): Promise<void> {
     await this.$disconnect();
+    await this.rawTxClient.$disconnect();
     this.logger.info('Database connection closed');
   }
 

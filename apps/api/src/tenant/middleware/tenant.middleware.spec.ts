@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { TenantMiddleware } from './tenant.middleware';
 import { TenantResolver } from '../tenant-resolver.service';
+import { TenantRlsContextService } from '../../database/tenant-rls-context.service';
 
 const RESOLVED = {
   id: '00000000-0000-7000-8000-000000000001',
@@ -19,7 +20,8 @@ function createFakeResolver(overrides: Partial<Record<string, unknown>> = {}) {
 describe('TenantMiddleware', () => {
   it('attaches a frozen tenantContext and organizationContext derived from one resolve() call, then calls next()', async () => {
     const resolver = createFakeResolver();
-    const middleware = new TenantMiddleware(resolver);
+    const tenantRlsContext = new TenantRlsContextService();
+    const middleware = new TenantMiddleware(resolver, tenantRlsContext);
     const req = {} as Request;
     const next = jest.fn() as NextFunction;
 
@@ -38,10 +40,27 @@ describe('TenantMiddleware', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
+  it('seeds TenantRlsContextService with the resolved tenantId before calling next()', async () => {
+    const resolver = createFakeResolver();
+    const tenantRlsContext = new TenantRlsContextService();
+    const middleware = new TenantMiddleware(resolver, tenantRlsContext);
+    const req = {} as Request;
+    let contextInsideNext: unknown;
+    const next = jest.fn(() => {
+      contextInsideNext = tenantRlsContext.getContext();
+    }) as NextFunction;
+
+    await middleware.use(req, {} as Response, next);
+
+    expect(contextInsideNext).toEqual({ tenantId: RESOLVED.id });
+    expect(tenantRlsContext.getContext()).toBeUndefined();
+  });
+
   it('forwards a resolution failure to next(error) instead of throwing or hanging', async () => {
     const error = new Error('Tenant could not be resolved');
     const resolver = createFakeResolver({ resolve: jest.fn(async () => Promise.reject(error)) });
-    const middleware = new TenantMiddleware(resolver);
+    const tenantRlsContext = new TenantRlsContextService();
+    const middleware = new TenantMiddleware(resolver, tenantRlsContext);
     const req = {} as Request;
     const next = jest.fn() as NextFunction;
 

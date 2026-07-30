@@ -3,6 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 import { TenantResolver } from '../tenant-resolver.service';
 import { TenantContext } from '../../types/tenant-context.type';
 import { OrganizationContext } from '../../types/organization-context.type';
+import { TenantRlsContextService } from '../../database/tenant-rls-context.service';
 
 // The orchestration half of tenant resolution — calls TenantResolver
 // (../tenant-resolver.service.ts, pure decision logic) once, then
@@ -37,7 +38,10 @@ import { OrganizationContext } from '../../types/organization-context.type';
 // explicitly is what correctly routes it into Nest's exception filter.
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-  constructor(private readonly tenantResolver: TenantResolver) {}
+  constructor(
+    private readonly tenantResolver: TenantResolver,
+    private readonly tenantRlsContext: TenantRlsContextService,
+  ) {}
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     try {
@@ -53,7 +57,13 @@ export class TenantMiddleware implements NestMiddleware {
       req.tenantContext = tenantContext;
       req.organizationContext = organizationContext;
 
-      next();
+      // Phase 10, Module 3 (Security Hardening) — seeds the RLS session
+      // context `PrismaService`'s own `$extends` query hook reads.
+      // `run()` wraps `next()` synchronously, same "AsyncLocalStorage
+      // propagates to everything downstream" pattern
+      // `HttpLoggingMiddleware`/`RequestContextService` already
+      // established — see that class's own comment.
+      this.tenantRlsContext.run({ tenantId: resolved.id }, () => next());
     } catch (error) {
       next(error);
     }

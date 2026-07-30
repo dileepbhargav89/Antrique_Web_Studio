@@ -617,3 +617,190 @@ relying on someone re-reading this document before every merge:
   exact same reachability-first discipline this document already
   established for `pnpm audit`). See `docs/architecture/container.md`
   "Container security scanning."
+
+## 16. Phase 10, Module 3 — Security Hardening (2026-07-30)
+
+Audited the full module brief (CSP, HSTS, CSRF, rate limiting, secure
+cookies, XSS, SQL injection, input sanitization, file upload/MIME
+validation, secure headers, OWASP coverage) plus the RLS gap flagged in
+Module 1's own blockers.md entry.
+
+### 16.1 RLS `SET LOCAL` wiring — closed
+
+**The gap:** `database-schema.md`'s own documented RLS contract
+(`SET LOCAL app.current_tenant_id`, inside the same transaction as every
+query) was never actually issued anywhere in application code — the app
+layer's own `WHERE tenantId = ...` scoping (confirmed present on every
+query) was doing 100% of real enforcement; RLS itself was a dormant
+backstop.
+
+**The fix:** `PrismaService` (`apps/api/src/database/prisma.service.ts`)
+now:
+- Wraps every model-delegate call in a transaction that issues
+  `SELECT set_config('app.current_tenant_id', $tenantId, true)` first,
+  via a `$extends` `$allOperations` query hook, monkey-patching this
+  instance's own model-delegate properties so every existing repository
+  call site (including `BaseRepository`'s early-captured `delegate`)
+  gets this treatment with zero repository file changes.
+- Overrides the interactive `$transaction()` form so application code's
+  own `repository.runInTransaction(async (tx) => {...})` calls
+  (Order/Invoice/Payment/Lead/FollowUp/Quotation) get the same
+  `set_config` at the top of their existing transaction — one call per
+  transaction, not one per statement inside it.
+- `tenantId` comes from a new `TenantRlsContextService`
+  (`AsyncLocalStorage`, mirroring `logging/request-context.service.ts`'s
+  established pattern), seeded by `TenantMiddleware` — the same
+  `run()`-wraps-`next()` propagation pattern `HttpLoggingMiddleware`
+  already uses.
+
+**Two real design risks found and resolved before shipping** (see
+decisions.md's 2026-07-30 RLS entry for the full account — summarized
+here):
+1. A naive version opened the wrapping transaction on `this`/`super`
+   (the same, already-patched client instance) — confirmed via two
+   throwaway spikes and then a LIVE regression that every request
+   (including `login`) failed with Prisma's own "Unable to start a
+   transaction in the given time" (P2028): the `tx` an interactive
+   transaction hands back inherits whatever client instance opened
+   it, so a `tx` derived from an already-patched `this` ALSO carries
+   the patched (hook-triggering) model delegates — any
+   `tx.someModel.method()` call inside re-triggered the same hook,
+   which opened ANOTHER transaction, recursing until the connection
+   pool was exhausted. Fixed with a second, entirely separate,
+   never-patched `PrismaClient` instance (`rawTxClient`, own
+   adapter/pool) used ONLY to open these transactions — verified live
+   (login + 30 sequential list-endpoint requests, zero errors) after
+   the fix.
+2. `BaseRepository.findManyAndCount()`'s array-form
+   `$transaction([findMany, count])` (exists so both queries share one
+   snapshot) now has each array member independently open its own
+   SET-LOCAL transaction when RLS context is active — a deliberate,
+   documented trade-off (near-simultaneous rather than truly shared
+   snapshots; `total` could theoretically disagree with `items` by one
+   row under a rare concurrent write) judged acceptable against the
+   actual security value of RLS coverage on every read. See that
+   method's own comment.
+
+**Verified live** (compiled build, real local Postgres, `LOG_LEVEL=debug`):
+`set_config` calls visibly firing per request, correct real data
+returned from `/leads`/`/orders`, zero errors across a 30-request
+stress test. Not yet tested against the actual `antrique_app`/
+`antrique_service` least-privileged roles (no local password configured
+for them — deliberately, per the RLS migration's own comment) — the
+current dev `DATABASE_URL` uses the owner role, which bypasses RLS
+regardless of session variables, so this wiring is a verified-safe
+no-op in the default dev configuration and only becomes protective once
+a deployment's `DATABASE_URL` points at the least-privileged role, per
+`database-schema.md`'s own existing production guidance.
+`isPlatformAdmin`/`isServiceContext` (the other two RLS session
+variables) are intentionally NOT wired — no live caller needs them yet
+(no cross-tenant admin endpoint, no DB-touching scheduled job) — see
+`TenantRlsContextService`'s own comment for how a future one would seed
+them.
+
+### 16.2 apps/web security headers — closed, with a real near-miss
+
+`apps/api`'s Helmet setup only ever covered its own JSON responses —
+`apps/web`'s pages/assets had zero security headers. Added a `headers()`
+block to `next.config.mjs`: CSP, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`,
+HSTS.
+
+**A genuine near-miss, caught only by live browser verification:** the
+first CSP version (`script-src 'self'`, no `'unsafe-inline'`) shipped a
+completely blank app — every route, zero visible content, ZERO console
+errors of any kind (no CSP violation message either). `next build`,
+`tsc`, and `curl` all reported success (the server-rendered HTML
+contained real, substantial content — the blank was 100% client-side).
+Root cause: the App Router streams RSC payloads and Suspense-reveal
+calls via inline `<script>self.__next_f.push(...)</script>` tags on
+every page; blocking inline scripts silently breaks the hydration/
+streaming-reveal mechanism, leaving the root wrapper's `hidden=""`
+attribute never removed. Diagnosed by systematically ruling out other
+causes (fresh tab, non-canvas page, a known-good external site, an A/B
+test with headers fully disabled) before finding the actual CSP
+directive at fault. Fixed by adding `'unsafe-inline'` to `script-src`
+too (same trade-off already accepted for `style-src`) — a nonce-based
+strict CSP is the tighter alternative but needs per-request nonce
+plumbing this app doesn't have today, tracked as a follow-up. Re-verified
+live (marketing homepage + portal login page, fresh tabs, zero CSP
+violations, real visible content) after the fix.
+
+**Why this matters beyond this one fix:** `next build`/`tsc`/`curl` all
+passed against the broken version — none of them execute client-side
+JavaScript. This is the concrete case for why `CLAUDE.md`'s own "start
+the dev server and use the feature in a browser" rule exists, not a
+formality — a CSP change is exactly the class of regression static
+checks cannot catch.
+
+### 16.3 Auth endpoint throttling — extended
+
+`POST /auth/refresh` (a credential-exchange endpoint, same risk class as
+login) previously shared only the general 100-req/min app-wide default.
+Now has its own `@Throttle` override, 10/min — looser than login's 5/min
+since a real client legitimately calls refresh periodically across
+multiple open tabs, unlike login. `POST /auth/logout` was left on the
+general default — a genuine placeholder with no server-side session
+state to protect (see that route's own comment), no credential-exchange
+risk to throttle against.
+
+### 16.4 File upload — MIME verification fixed, virus-scan extension point added
+
+- **MIME verification gap closed:** `ProductImageService.upload()`
+  previously stored the object in S3 with the CLIENT-CLAIMED
+  `Content-Type` multipart header, not the sniffed real type — the
+  controller's `FileTypeValidator` already sniffs real magic bytes to
+  enforce the allowed-type allowlist, but didn't expose the detected
+  type back to the service layer for reuse. Now re-sniffed via
+  `file-type`'s own `fileTypeFromBuffer()` (dynamic `import()` — the
+  package ships ESM-only) and used for the stored object's
+  `Content-Type`, falling back to the client-supplied value only if
+  sniffing returns nothing. Verified live against real storage: a file
+  uploaded with a deliberately mismatched multipart `Content-Type`
+  (`image/jpeg` claimed, real PNG bytes) was stored and served back with
+  `Content-Type: image/png` — the sniffed type, not the claimed one.
+- **Virus-scanning extension point** (`apps/api/src/utils/
+  malware-scan.util.ts`) — a documented no-op, not a real scanner (no
+  ClamAV daemon/cloud scanning API is provisioned; standing one up is
+  its own infrastructure decision outside this module's scope). Every
+  upload call site already calls it, in the right place (after size/
+  MIME-allowlist validation, before the file reaches object storage) —
+  wiring a real scanner later means implementing this one function's
+  body, not finding and adding a new call site to every upload path.
+
+### 16.5 CSRF — audited, no code change; reasoning now documented
+
+No CSRF token/middleware exists anywhere, which looked like a gap until
+tracing the actual cookie/auth architecture: `apps/api` is Bearer-token-
+only (`credentials: false` in CORS config, confirmed — see §5 above) and
+never reads cookies for authentication. The only ambient cookie in the
+whole system is `apps/web`'s own httpOnly session cookie
+(`lib/auth/session-cookie.ts`, `SameSite: 'lax'`), consumed exclusively
+by that same app's own same-origin Route Handlers (`/api/auth/*`) — a
+cross-site request has no ambient credential to ride on against either
+app. Residual, accepted risk: `SameSite=lax` still permits the cookie on
+top-level cross-site GET navigations, but no route here changes state on
+GET. Not a gap to close — the architecture itself already prevents the
+attack CSRF tokens exist to stop; this section exists so that reasoning
+is explicit rather than implicit.
+
+### 16.6 SQL injection — audited, confirmed clean
+
+Every raw-SQL call site in `apps/api/src` (the inventory-repository
+aggregate queries from Milestone 12, this module's own new
+`set_config()` calls) uses either Prisma's tagged-template `$queryRaw`
+(auto-parameterized) or `$executeRawUnsafe` with genuine placeholder
+arguments (`$1`, `$2`, ...), never string-interpolating untrusted input
+directly into SQL text. The one hardcoded `$executeRawUnsafe` call
+(`prisma/seed.ts`) takes a fixed literal string, no interpolation at
+all. No injection risk found.
+
+### Validation
+
+`pnpm --filter @antrique/api typecheck`/`lint`/`test` clean — 187 suites
+(+1 new: `product-image.service.spec.ts`), 1086 tests (+5). `pnpm
+--filter @antrique/web typecheck`/`lint`/`build` clean. Live-verified:
+RLS wiring (compiled API build, real Postgres, 30-request stress test),
+CSP fix (real browser, marketing + portal pages, zero console
+violations), file-upload MIME fix (real multipart upload against real
+S3-compatible storage, verified served `Content-Type`).

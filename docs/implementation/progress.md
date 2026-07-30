@@ -3,7 +3,7 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10) and Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section) — working through remaining modules sequentially, Module 3 (Security Hardening) next**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), and Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1) — working through remaining modules sequentially, Module 4 (Authentication & Session Security) next**
 
 **Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
 (Email Assistant) was already fully built, tested, and wired in — module,
@@ -98,6 +98,31 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 3 (Security Hardening) (`apps/api` + `apps/web`)** —
+  closed the RLS `SET LOCAL` gap flagged in Module 1: `PrismaService`
+  now issues `set_config('app.current_tenant_id', ...)` per request via
+  a `$extends` hook + `$transaction` override, both opening on a SECOND,
+  never-patched `PrismaClient` instance — a real infinite-recursion
+  regression (every request including login failing with Prisma's
+  "Unable to start a transaction in the given time") was found and
+  fixed along the way when an earlier version opened the wrapping
+  transaction on the already-patched primary client. Added `apps/web`
+  security headers (CSP/HSTS/X-Frame-Options/etc, `next.config.mjs`) —
+  a genuine near-miss: the first CSP (missing `'unsafe-inline'` on
+  `script-src`) shipped a completely blank app on every route with zero
+  console errors and passing `build`/`tsc`/`curl` checks, caught only by
+  live browser verification (the App Router's inline RSC-streaming
+  scripts were silently blocked). Also: `/auth/refresh` throttling
+  (previously shared only the general rate limit), product-image upload
+  now stores the sniffed real MIME type instead of the client-claimed
+  one (verified live against real storage), a documented virus-scan
+  extension point, and CSRF reasoning written up (audited, no code
+  change needed — Bearer-only architecture already prevents it). Full
+  writeup: `docs/architecture/security.md` §16. `pnpm --filter
+  @antrique/api typecheck`/`lint`/`test` clean (187 suites, 1086 tests);
+  `pnpm --filter @antrique/web typecheck`/`lint`/`build` clean. Multiple
+  live verifications this pass, not just automated checks — see §16 for
+  what each one caught.
 - **Phase 10, Module 2 (Frontend Performance) (`apps/web`)** — user asked
   to work through Phase 10's remaining modules sequentially, completing
   each before starting the next. Audited `apps/web` against the module's
@@ -4321,19 +4346,20 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. **DONE (2026-07-30):** Phase 10, Module 1 (API Performance) and Module 2
-   (Frontend Performance) — see this file's own newest log entries,
-   `docs/architecture/performance.md` §10, and `docs/architecture/
-   frontend.md`'s Phase 10 Module 2 section for full writeups. User has
-   directed working through Phase 10's remaining 13 modules sequentially
-   (complete one, move to the next, no per-module check-in needed):
-   security hardening, auth/session security, observability, monitoring,
-   background jobs, caching, DB reliability, CI/CD, Docker/infra,
-   testing, docs, tech debt, readiness report (full spec from the user,
-   not yet copied into its own doc) — **Module 3 (Security Hardening) is
-   next**. One real finding already queued for it: RLS's documented
-   `SET LOCAL` contract is never actually wired into Prisma — see
-   `docs/implementation/blockers.md`'s 2026-07-30 entry.
+1. **DONE (2026-07-30):** Phase 10, Modules 1-3 (API Performance,
+   Frontend Performance, Security Hardening) — see this file's own
+   newest log entries, `docs/architecture/performance.md` §10,
+   `docs/architecture/frontend.md`'s Module 2 section, and
+   `docs/architecture/security.md` §16 for full writeups. Module 3
+   closed the RLS `SET LOCAL` gap flagged in Module 1 (see blockers.md's
+   now-resolved entry) and caught/fixed a real blank-app CSP regression
+   via live browser verification. User has directed working through
+   Phase 10's remaining 12 modules sequentially (complete one, move to
+   the next, no per-module check-in needed): auth/session security,
+   observability, monitoring, background jobs, caching, DB reliability,
+   CI/CD, Docker/infra, testing, docs, tech debt, readiness report (full
+   spec from the user, not yet copied into its own doc) — **Module 4
+   (Authentication & Session Security) is next**.
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

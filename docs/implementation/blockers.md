@@ -19,28 +19,6 @@ Format:
   (3) beachhead vertical. See docs/README.md "open decisions".
 - **Owner:** you
 
-## 🟡 RLS's SET LOCAL contract is documented but not actually wired into Prisma (opened 2026-07-30)
-- **Blocks:** relying on RLS as a real, live defense-in-depth backstop —
-  not currently blocking any feature (app-layer `WHERE tenantId = ...`
-  scoping, confirmed present on every query per `CLAUDE.md`'s "RLS is the
-  backstop, not the only gate," is doing 100% of real enforcement today).
-- **Needs:** `docs/architecture/database-schema.md` §"RLS strategy"
-  documents a per-request/job `SET LOCAL app.current_tenant_id` (plus
-  `app.is_platform_admin`/`app.is_service_context`) contract, inside the
-  same transaction as the query. Found while auditing connection pooling
-  for Phase 10 Module 1 (API Performance) that this is never actually
-  issued anywhere in application code —
-  `apps/api/src/tenant/middleware/tenant.middleware.ts` only attaches
-  `tenantContext` to the Express request for the app layer's own
-  scoping; it never touches Prisma. The only live `SET LOCAL` call in the
-  whole codebase is inside `apps/api/prisma/seed.ts`'s own transaction.
-  Needs a Prisma `$extends`/interceptor that issues the `SET LOCAL` inside
-  every request's transaction — a real, scoped task (touches every query
-  path), not a quick fix. Logged for Module 3 (Security Hardening) of the
-  same Phase 10 initiative rather than folded into the performance work
-  that found it.
-- **Owner:** you (flagged, not yet assigned)
-
 ## 🟡 docs/product/*.md have the same swapped-content bug as docs/implementation did (opened 2026-07-16)
 - **Blocks:** trusting docs/product/ filenames at face value; not currently
   blocking any in-progress task.
@@ -55,6 +33,18 @@ Format:
 - **Owner:** you
 
 ## Resolved
+- **RLS's SET LOCAL contract was documented but not actually wired into
+  Prisma** (opened 2026-07-30, resolved same day) — `database-schema.md`'s
+  documented `SET LOCAL app.current_tenant_id` contract is now issued by
+  `PrismaService`'s own `$extends` query hook + `$transaction` override
+  (`apps/api/src/database/prisma.service.ts`, `tenant-rls-context.service.ts`),
+  seeded by `TenantMiddleware`. Verified live (compiled build, real
+  Postgres, 30-request stress test, zero errors) after fixing a real
+  infinite-recursion regression found along the way (opening the wrapping
+  transaction on the already-patched client instance, not a separate raw
+  one). `isPlatformAdmin`/`isServiceContext` intentionally not wired — no
+  live caller needs them yet. See `docs/architecture/security.md` §16.1
+  and decisions.md's 2026-07-30 RLS entry for the full account.
 - **Sprint 2 task list needs authoring** (opened 2026-07-15, resolved
   2026-07-26) — never re-authored from docs/product/ as originally
   planned; instead, Sprint 2's real scope was built directly from a

@@ -4610,4 +4610,85 @@ Format:
   `apps/web/src/app/(portal)/catalog/[id]/product-detail.tsx`,
   `docs/architecture/frontend.md` (new Phase 10 Module 2 section).
 
+## 2026-07-30 — Phase 10, Module 3 (Security Hardening): RLS wiring via a second never-patched PrismaClient, CSP script-src needed 'unsafe-inline'
+- **Decision (RLS):** implemented the `SET LOCAL app.current_tenant_id`
+  wiring `database-schema.md` documents but nothing ever issued (flagged
+  in Module 1). Design: `PrismaService`'s constructor monkey-patches its
+  own model-delegate properties to route through a `$extends`
+  `$allOperations` hook, which opens a wrapping transaction and runs
+  `set_config()` first — but that wrapping transaction is opened on a
+  SECOND, entirely separate `PrismaClient` instance (`rawTxClient`, own
+  adapter/pool), never on `this`. Verified via two throwaway spikes
+  before writing the real implementation (`$extends` + array-form
+  `$transaction` compose fine; nested nested-transaction concerns don't
+  materialize) — but a THIRD, more realistic spike (a login-like sequence
+  of calls) caught a real bug the first two missed: opening the wrapping
+  transaction via `this.$transaction(...)` (the same, already-patched
+  instance) means the `tx` that transaction hands back ALSO carries the
+  patched delegates, so any `tx.someModel.method()` call inside
+  re-triggers the same hook — infinite recursion, confirmed live as
+  every request (including `login`) failing with Prisma's own "Unable to
+  start a transaction in the given time." A second, never-patched client
+  used only for opening these transactions fixes it cleanly (verified:
+  same spike scenario, zero recursion; then confirmed against the real
+  compiled app — login + 30 sequential `/leads` requests, zero errors).
+- **Why:** the first two spikes tested "does `$extends` compose with
+  array-form `$transaction`" in isolation, which is real but not the
+  whole picture — they never combined property-patching with calling
+  `$transaction` ON the patched instance, which is exactly what the real
+  `PrismaService` constructor does. The third spike (deliberately
+  modeling a realistic multi-call sequence, not a single isolated call)
+  is what surfaced the gap the first two couldn't have shown. This is
+  the same "verify with something realistic enough to actually catch the
+  bug" lesson the CSP finding below repeats in a different form.
+- **Alternatives:** wrapping the ENTIRE request in one interactive
+  transaction via a request-scoped provider (rejected — Nest request
+  scope bubbles to every consumer, real DI performance cost, and changes
+  commit/rollback semantics for the whole request, not just RLS
+  session state); accepting `findManyAndCount()`'s snapshot-consistency
+  loss as a blocker and not shipping RLS coverage for reads at all
+  (rejected — the snapshot property it protects is a display/pagination
+  nicety, not a security property, and RLS's actual security value on
+  every read outweighs it — documented as an explicit, accepted
+  trade-off instead of silently degrading it or blocking the whole fix
+  on it).
+- **Decision (CSP):** `apps/web`'s new `next.config.mjs` CSP needed
+  `'unsafe-inline'` on `script-src`, not just `style-src` — without it,
+  the ENTIRE app rendered a permanently blank page on every route, with
+  ZERO console errors (no CSP violation message, nothing) and `next
+  build`/`tsc`/`curl` all reporting success (the server HTML had real
+  content; the break was 100% client-side). Root cause: the App Router's
+  own inline `<script>self.__next_f.push(...)</script>` RSC-streaming/
+  Suspense-reveal tags get silently blocked, so the root wrapper's
+  `hidden=""` attribute never gets removed. Caught only by live browser
+  verification (screenshot + console + network tab), diagnosed by
+  systematically ruling out other causes (fresh tab, a non-canvas page,
+  a known-good external site, an A/B test with headers fully removed)
+  before finding the actual directive at fault.
+- **Why:** this is the concrete argument for `CLAUDE.md`'s "start the
+  dev server and use the feature in a browser" rule — every automated
+  check available (typecheck, lint, build, curl) passed against a
+  completely broken app. A CSP change is exactly the class of regression
+  those checks structurally cannot catch, since none of them execute
+  client-side JS.
+- **Decision (file upload):** `ProductImageService.upload()` now
+  re-sniffs the buffer's real MIME type (`file-type` package, dynamic
+  `import()` since it ships ESM-only) for the S3 `Content-Type`, instead
+  of trusting the client-supplied multipart header. Verified live against
+  real storage: a file uploaded claiming `image/jpeg` with real PNG bytes
+  was stored and served back as `Content-Type: image/png`.
+- **Why:** `FileTypeValidator` (controller-level) already sniffs bytes to
+  ENFORCE the allowed-type allowlist but doesn't expose the detected type
+  for reuse, so the STORED object's `Content-Type` was still whatever the
+  client claimed — a narrow but real MIME-confusion gap the module's own
+  "MIME verification" brief item names directly.
+- **Affects:** `apps/api/src/database/{prisma.service.ts,
+  tenant-rls-context.service.ts,database.module.ts,base.repository.ts}`,
+  `apps/api/src/tenant/middleware/tenant.middleware.ts`,
+  `apps/web/next.config.mjs`, `apps/api/src/modules/auth/{auth.controller.ts,
+  constants/auth.constant.ts}`, `apps/api/src/modules/catalog/
+  product-image.service.ts`, `apps/api/src/utils/malware-scan.util.ts`
+  (new), `docs/architecture/security.md` §16, `docs/implementation/
+  blockers.md` (RLS entry resolved).
+
 <!-- Add new decisions above this line as you build. -->

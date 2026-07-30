@@ -106,6 +106,18 @@ export abstract class BaseRepository<TDelegate extends CrudDelegate> {
   // that same object on every real Prisma delegate — so a caller passes
   // exactly what it already passed to a bare `findMany()` call, nothing
   // new to learn.
+  // Phase 10, Module 3 (Security Hardening) — `PrismaService`'s own RLS
+  // wiring (`$extends` query hook, see that file's constructor comment)
+  // now means each of the two array members below independently opens
+  // its own SET-LOCAL transaction rather than sharing this method's
+  // outer one when RLS session context is active — the two queries see
+  // two independent (though near-simultaneous) snapshots instead of one
+  // truly shared one. Under a rare concurrent write landing between them,
+  // `total` could disagree with `items` by one row — a display/pagination
+  // nicety, not a security property, judged acceptable against RLS
+  // coverage on every read. See `PrismaService`'s own comment for the
+  // full reasoning; this note exists here too since this is the other
+  // half of that trade-off's call site.
   protected async findManyAndCount(
     transactionClient: TransactionCapable,
     args: Parameters<TDelegate['findMany']>[0],
