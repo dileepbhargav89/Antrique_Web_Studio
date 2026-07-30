@@ -1,0 +1,33 @@
+/**
+ * Component-level CSS for the handful of things Tailwind utilities can't
+ * express directly. Expected to stay small — anything expressible as a
+ * utility class belongs in the component's `className`, not here.
+ */
+
+::selection {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* Thin, brand-toned scrollbar (WebKit + Firefox). Falls back to the
+   platform default silently where unsupported — decorative only. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: var(--radius-full, 9999px);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}

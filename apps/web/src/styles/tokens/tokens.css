@@ -1,0 +1,201 @@
+/**
+ * Antrique Web Studio — design tokens.
+ *
+ * "Warm antique" direction: charcoal/ink primary, brass/amber accent —
+ * referencing the "Antrique" name without being kitschy. Every color pair
+ * below was contrast-verified against WCAG 2.1 AA (>=4.5:1 body text,
+ * >=3:1 large text / UI-component boundaries) with a throwaway OKLCH
+ * contrast script during implementation — see docs/architecture/
+ * design-system.md for the actual verified ratios. `--border` is a
+ * deliberate exception: it's a low-emphasis decorative divider (matching
+ * shadcn's own upstream convention), not a UI-component boundary — real
+ * form-control boundaries use the separate, more-visible `--input` token,
+ * and focus indicators use `--ring` (verified >=3:1 in both themes).
+ */
+
+:root {
+  /* Base */
+  --background: oklch(0.985 0.004 75);
+  --foreground: oklch(0.19 0.012 55);
+  --card: oklch(0.975 0.006 75);
+  --card-foreground: oklch(0.19 0.012 55);
+  --popover: oklch(0.975 0.006 75);
+  --popover-foreground: oklch(0.19 0.012 55);
+
+  /* Brand */
+  --primary: oklch(0.22 0.02 55);
+  --primary-foreground: oklch(0.98 0.004 75);
+  --secondary: oklch(0.94 0.008 70);
+  --secondary-foreground: oklch(0.22 0.02 55);
+  --accent: oklch(0.64 0.15 73);
+  --accent-foreground: oklch(0.19 0.012 55);
+  --muted: oklch(0.94 0.008 70);
+  --muted-foreground: oklch(0.48 0.015 60);
+
+  /* Semantic */
+  --success: oklch(0.48 0.12 148);
+  --success-foreground: oklch(0.98 0.004 75);
+  --warning: oklch(0.74 0.15 70);
+  --warning-foreground: oklch(0.19 0.012 55);
+  --destructive: oklch(0.54 0.24 27.325);
+  --destructive-foreground: oklch(0.98 0.004 75);
+  --info: oklch(0.52 0.16 250);
+  --info-foreground: oklch(0.98 0.004 75);
+
+  /* UI boundaries */
+  --border: oklch(0.78 0.015 70);
+  --input: oklch(0.62 0.02 65);
+  --ring: var(--accent);
+
+  /* Data viz (carried over from shadcn scaffold, re-hued for palette consistency —
+     not contrast-verified against text; categorical/decorative only) */
+  --chart-1: oklch(0.64 0.15 73);
+  --chart-2: oklch(0.52 0.1 190);
+  --chart-3: oklch(0.58 0.09 40);
+  --chart-4: oklch(0.48 0.12 148);
+  --chart-5: oklch(0.4 0.05 60);
+
+  /* Sidebar (shadcn scaffold, re-hued) */
+  --sidebar: oklch(0.975 0.006 75);
+  --sidebar-foreground: oklch(0.19 0.012 55);
+  --sidebar-primary: oklch(0.22 0.02 55);
+  --sidebar-primary-foreground: oklch(0.98 0.004 75);
+  --sidebar-accent: oklch(0.94 0.008 70);
+  --sidebar-accent-foreground: oklch(0.22 0.02 55);
+  --sidebar-border: oklch(0.88 0.01 70);
+  --sidebar-ring: var(--accent);
+
+  /* Radius (unchanged from Phase 0 shadcn init) */
+  --radius: 0.625rem;
+
+  /* Typography scale, font weights, and letter-tracking are intentionally
+     NOT redeclared here — Tailwind v4's built-in defaults (text-xs..9xl,
+     font-weight-*, tracking-*) already match what a "no brand guidance
+     exists" type scale should be, and redeclaring identical values would
+     be dead config. See design-system.md's "Typography" section. Font
+     FAMILY is customized (below + layout.tsx): --font-sans (Geist, body)
+     and --font-heading (Fraunces — a distinct display serif, not an alias
+     of --font-sans, unlike Phase 0's placeholder). */
+
+  /* Spacing (semantic aliases over Tailwind's numeric scale, for layout components) */
+  --space-gap-sm: 0.5rem;
+  --space-gap-md: 1rem;
+  --space-gap-lg: 1.5rem;
+  --space-card-padding: 1rem;
+  --space-section-y: 4rem;
+  --space-section-y-lg: 5rem;
+
+  /* Shadows (warm-tinted, not pure black) */
+  --shadow-color: 55 15% 20%;
+  --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.06);
+  --shadow-md: 0 4px 8px hsl(var(--shadow-color) / 0.08), 0 1px 2px hsl(var(--shadow-color) / 0.06);
+  --shadow-lg:
+    0 12px 24px hsl(var(--shadow-color) / 0.1), 0 2px 4px hsl(var(--shadow-color) / 0.06);
+  --shadow-xl:
+    0 24px 48px hsl(var(--shadow-color) / 0.12), 0 4px 8px hsl(var(--shadow-color) / 0.06);
+  --shadow-2xl: 0 32px 64px hsl(var(--shadow-color) / 0.16);
+
+  /* Blur (glass-surface pattern, beyond Tailwind's default blur scale) */
+  --blur-glass: 12px;
+
+  /* Decorative accent glow — restrained per design review (~6% opacity, not a literal
+     glow/blur effect). Relative-color syntax reuses --accent's own hue/chroma at a fixed
+     low alpha, so it stays theme-correct in both light/dark without a second .dark override. */
+  --glow-accent: oklch(from var(--accent) l c h / 0.06);
+  /* Bolder sibling of --glow-accent, for hover-triggered glow (card hover, illustration
+     accents) — the premium-redesign phase explicitly authorized visible glow, superseding
+     the original 6%-only restraint. Same relative-color technique, just a higher alpha. */
+  --glow-accent-strong: oklch(from var(--accent) l c h / 0.16);
+
+  /* Opacity (semantic states, not a full 0-100 scale — Tailwind's opacity-* utilities cover that) */
+  --opacity-disabled: 0.5;
+  --opacity-hover: 0.85;
+  --opacity-overlay: 0.6;
+
+  /* Z-index (named, never a magic number at a call site) */
+  --z-base: 0;
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-fixed: 1200;
+  --z-modal-backdrop: 1300;
+  --z-modal: 1400;
+  --z-popover: 1500;
+  --z-tooltip: 1600;
+  --z-toast: 1700;
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 400ms;
+  --duration-slower: 600ms;
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* A multiplier, not a switch — reduced-motion is enforced in JS via
+     useReducedMotion() (components/motion), which skips animation
+     entirely rather than merely shortening it. This token is available
+     for any CSS transition that wants to react to prefers-reduced-motion
+     via the media query below. */
+  --motion-scale: 1;
+}
+
+.dark {
+  --background: oklch(0.16 0.014 60);
+  --foreground: oklch(0.96 0.006 75);
+  --card: oklch(0.205 0.015 60);
+  --card-foreground: oklch(0.96 0.006 75);
+  --popover: oklch(0.205 0.015 60);
+  --popover-foreground: oklch(0.96 0.006 75);
+
+  --primary: oklch(0.92 0.012 70);
+  --primary-foreground: oklch(0.19 0.012 55);
+  --secondary: oklch(0.27 0.015 60);
+  --secondary-foreground: oklch(0.96 0.006 75);
+  --accent: oklch(0.75 0.13 75);
+  --accent-foreground: oklch(0.16 0.012 55);
+  --muted: oklch(0.27 0.015 60);
+  --muted-foreground: oklch(0.7 0.015 65);
+
+  --success: oklch(0.68 0.15 148);
+  --success-foreground: oklch(0.16 0.012 55);
+  --warning: oklch(0.78 0.14 75);
+  --warning-foreground: oklch(0.16 0.012 55);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.16 0.012 55);
+  --info: oklch(0.68 0.15 250);
+  --info-foreground: oklch(0.16 0.012 55);
+
+  --border: oklch(0.32 0.015 60);
+  --input: oklch(0.5 0.02 65);
+  --ring: var(--accent);
+
+  --chart-1: oklch(0.75 0.13 75);
+  --chart-2: oklch(0.62 0.1 190);
+  --chart-3: oklch(0.68 0.09 40);
+  --chart-4: oklch(0.68 0.15 148);
+  --chart-5: oklch(0.55 0.05 60);
+
+  --sidebar: oklch(0.205 0.015 60);
+  --sidebar-foreground: oklch(0.96 0.006 75);
+  --sidebar-primary: oklch(0.75 0.13 75);
+  --sidebar-primary-foreground: oklch(0.16 0.012 55);
+  --sidebar-accent: oklch(0.27 0.015 60);
+  --sidebar-accent-foreground: oklch(0.96 0.006 75);
+  --sidebar-border: oklch(0.32 0.015 60);
+  --sidebar-ring: var(--accent);
+
+  --shadow-color: 60 20% 2%;
+}
+
+/* CSS-level reduced-motion fallback for anything animated outside the JS
+   hooks (e.g. tw-animate-css utilities) — belt-and-suspenders alongside
+   components/motion's own useReducedMotion() gating. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+    --duration-slower: 0ms;
+  }
+}

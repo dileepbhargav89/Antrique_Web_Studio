@@ -1,3 +1,130 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '../styles/tokens/tokens.css';
+@import '../styles/tokens/components.css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* Real design tokens (see styles/tokens/tokens.css) mapped into Tailwind's
+   theme namespace. `inline` means each key resolves via var() at runtime
+   rather than being inlined at build time — required for .dark's
+   overrides (tokens.css) to actually take effect. */
+@theme inline {
+  --font-heading: var(--font-heading);
+  --font-sans: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  /* Semantic status colors — new this phase, not part of shadcn's default set */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  /* Pill/circular radius — matches Tailwind's own `rounded-full` semantics. Declared
+     for real because `styles/tokens/components.css`'s scrollbar-thumb rule already
+     referenced `var(--radius-full, 9999px)` with no real declaration backing it, silently
+     relying on the fallback. */
+  --radius-full: 9999px;
+  /* Warm-tinted shadow scale, overriding Tailwind's neutral-gray defaults */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  /* Glass-surface blur, additive to Tailwind's default blur scale */
+  --blur-glass: var(--blur-glass);
+}
+
+/* Named durations and easings from tokens.css do NOT map to a Tailwind
+   utility-generating theme namespace (verified empirically — unlike the
+   shadow and blur keys above, a duration or ease key inside @theme does
+   not produce corresponding utility classes). They stay plain CSS custom
+   properties, consumed via Tailwind's arbitrary-value syntax
+   (`duration-[var(--duration-base)]`) or directly in JS (mirrored as
+   plain constants in lib/animation/tokens.ts for GSAP/Motion, which can't
+   read CSS custom properties). */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* Subtle decorative background wash for hero sections — see tokens.css's --glow-accent
+   comment for why this stays a single low-alpha token rather than a family of gradient
+   utilities. */
+@utility bg-glow-hero {
+  background-image: radial-gradient(circle at 85% 15%, var(--glow-accent) 0%, transparent 60%);
+}
+
+/* Loading-skeleton shimmer — a moving light sweep across a solid block. Deliberately NOT the
+   `shimmer` utility the `shadcn` package ships (`shadcn/tailwind.css`): that one clips its
+   gradient to text glyphs (`background-clip: text`), which does nothing useful on an empty
+   skeleton `<div>` with no text content — would likely render invisible. This is a small,
+   purpose-built alternative for the actual use case. Not gated behind `prefers-reduced-motion`
+   — a loading indicator conveys state, not decoration, matching `Spinner`'s own established
+   `animate-spin` exception (see docs/architecture/design-system.md §9). */
+@utility skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    color-mix(in oklch, var(--muted), var(--foreground) 10%) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -50% 0;
+  }
+}

@@ -9,15 +9,22 @@
 
 import { SITE } from './seo.config';
 
-/** Home — Organization + WebSite (sitelinks search box). */
+/**
+ * Home — Organization + WebSite.
+ *
+ * Deliberately omits `logo`/`sameAs` (Organization) and the sitelinks-search-box
+ * `potentialAction` (WebSite) — confirmed during the Marketing Website Engineering
+ * Review that none of `/logo.png`, real social profile URLs, or a `/search` route
+ * actually exist. Declaring them would be schema pointing at 404s/nonexistent routes,
+ * exactly the "misleading schema is penalized" risk this file's own header comment
+ * warns about. Add them back once those real assets/routes exist, not before.
+ */
 export function organizationSchema() {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: SITE.name,
     url: SITE.domain,
-    logo: `${SITE.domain}/logo.png`,
-    sameAs: [/* social profiles */],
   };
 }
 
@@ -27,11 +34,6 @@ export function websiteSchema() {
     '@type': 'WebSite',
     url: SITE.domain,
     name: SITE.name,
-    potentialAction: {
-      '@type': 'SearchAction',
-      target: `${SITE.domain}/search?q={query}`,
-      'query-input': 'required name=query',
-    },
   };
 }
 
@@ -61,12 +63,16 @@ export function faqSchema(items: { question: string; answer: string }[]) {
   };
 }
 
-/** Blog post — BlogPosting (author + dates). */
+/**
+ * Blog post — BlogPosting (author + dates). `image` is optional — omitted when no real
+ * image asset is available (see `organizationSchema()`'s comment on the same underlying
+ * asset gap); `publisher.logo` is omitted for the same reason (no real `/logo.png`).
+ */
 export function blogPostingSchema(input: {
   title: string;
   description: string;
   url: string;
-  image: string;
+  image?: string;
   author: string;
   publishedTime: string;
   modifiedTime: string;
@@ -76,13 +82,12 @@ export function blogPostingSchema(input: {
     '@type': 'BlogPosting',
     headline: input.title,
     description: input.description,
-    image: input.image,
+    ...(input.image ? { image: input.image } : {}),
     url: input.url,
     author: { '@type': 'Person', name: input.author },
     publisher: {
       '@type': 'Organization',
       name: SITE.name,
-      logo: { '@type': 'ImageObject', url: `${SITE.domain}/logo.png` },
     },
     datePublished: input.publishedTime,
     dateModified: input.modifiedTime,
