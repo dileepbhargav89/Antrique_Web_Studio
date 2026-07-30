@@ -12,6 +12,385 @@ Format:
 
 ---
 
+## 2026-07-30 — `FormLabel` crashes outside a real `<FormField>`; fixed in both Vendor and Client edit dialogs
+- **Decision:** in `VendorFormDialog`'s (new, Phase 9 Step 1) and
+  `ClientFormDialog`'s (Phase 7, already shipped) Status field — plain
+  `useState`, not an RHF-registered field — replaced `<FormLabel>Status
+  </FormLabel>` with the base `Label` component (`@/components/ui/
+  label`, no react-hook-form dependency).
+- **Why:** discovered live — clicking "Edit" on the new Vendor detail
+  page crashed the whole page via the portal's route error boundary
+  (`Error: useFormField must be used within a <FormField>`).
+  `components/forms/form.tsx`'s `FormLabel` unconditionally calls
+  `useFormField()`, which throws immediately if there's no react-hook-
+  form `Controller` context above it — `<FormItem>` alone (which the
+  Status block does have) isn't enough. `VendorFormDialog`'s Status
+  block was written by copying `ClientFormDialog`'s exact pattern
+  (documented as the established convention for this dialog shape) —
+  meaning `ClientFormDialog` has carried this exact crash, undiscovered,
+  since Phase 7, simply because no prior session clicked "Edit" on a
+  Client and hit it live.
+- **Alternatives:** wrapping the Status field in a no-op `<FormField
+  name="status" control={form.control} render={...} />` just to satisfy
+  `useFormField()`'s context requirement (rejected — `status` isn't part
+  of the Zod-validated form schema at all, on either dialog; forcing it
+  through RHF only to immediately discard the value on submit is more
+  complex than the actual fix, not less).
+- **Affects:** `apps/web/src/app/(portal)/finance/vendors/
+  vendor-form-dialog.tsx` and `apps/web/src/app/(portal)/crm/clients/
+  client-form-dialog.tsx` only — one line + one import each. Verified
+  live after the fix: both dialogs' Edit flow opens and submits without
+  error (Vendor's `updatedAt` confirmed changed via a follow-up API call).
+
+## 2026-07-30 — Fixed a fresh-database-breaking bug in `20260729090000_add_project_management`
+- **Decision:** rewrote that migration's SQL to contain only the `comments`
+  table's statements (table, indexes, FKs, CHECK, RLS) — every `CREATE
+  TYPE`/`CREATE TABLE`/index/FK/RLS statement for `projects`/
+  `project_members`/`milestones`/`tasks`/`documents`/`activity_logs` was
+  removed. Recomputed the file's checksum and updated it directly in
+  `_prisma_migrations` (a metadata-only `UPDATE`, no schema/data touched —
+  confirmed safe first: `applied_steps_count` for this row was already 0,
+  meaning the file's SQL was never literally executed against this
+  database in the first place).
+- **Why:** discovered while generating Phase 9's first migration (Vendor
+  Management) — `prisma migrate dev`'s shadow-database replay failed with
+  `type "ProjectStatus" already exists`, because this migration's own
+  header comment already said those six tables were reconciled via
+  `prisma migrate resolve --applied` (real DB never re-ran this SQL) while
+  the file itself still contained literal `CREATE TYPE`/`CREATE TABLE` for
+  all six, redundant with `20260717090000_init` +
+  `20260717091500_row_level_security` (confirmed by grep — every type/
+  table/RLS statement for those six tables already exists there). Only
+  `comments` was ever genuinely new. Left as-is, this file would fail
+  identically for anyone running `prisma migrate deploy` against a truly
+  fresh database — a new developer's machine, CI, or a real production
+  first deploy — not just this shadow-DB check.
+- **Alternatives:** `prisma migrate reset` (rejected — destructive, drops
+  the entire dev database/data; not taken without explicit user
+  authorization per this session's own safety rules, and unnecessary once
+  the real root cause — file content not matching what was actually
+  applied — was identified); leaving the file broken and working around
+  it per-migration going forward (rejected — the same shadow-DB failure
+  would recur on every future migration, and the fresh-database/production
+  risk would persist silently).
+- **Affects:** `apps/api/prisma/migrations/20260729090000_add_project_management/migration.sql`
+  (content rewritten) and the dev database's `_prisma_migrations.checksum`
+  row for that migration (metadata-only). No application code, no schema
+  change, no data change.
+
+## 2026-07-30 — Enterprise Operations Suite is Phase 9, not Phase 8; Finance is Module 1
+- **Decision:** the user's 15-module "Enterprise Operations Suite" brief
+  (Finance, Contracts, HR, Resource Planning, Time Tracking, Help Desk,
+  Knowledge Base, Calendar, Integrations, Analytics, Search, Automation,
+  Audit, Feature Flags, Quality Review) is tracked as **Phase 9** in
+  `progress.md`, not Phase 8 — the brief itself called it "Phase 8," but
+  that name was already in use for the AI Workspace (Steps 1–8, now
+  backend-complete). Confirmed with the user: finish Phase 8 Step 8
+  (Email Assistant) first — turned out to already be done, just
+  undocumented (see progress.md's backfilled entry) — then start Phase 9.
+  Module 1 (Finance) was picked as the starting module over Help Desk or
+  HR, since `Invoice`/`InvoiceItem`/`Quotation`/`QuotationItem`/`Payment`/
+  `PaymentRecord`/`PaymentAllocation`/`TaxRate` already exist in the
+  schema — the least net-new-schema starting point of the three offered.
+- **Why:** two names for one phase number would make `progress.md`
+  ambiguous for every future session; per CLAUDE.md's own working rule
+  ("work ONE task at a time, scoped"), 15 modules — most needing brand-new
+  Prisma models, migrations, RLS policies, services, controllers, and
+  `apps/web` pages each — cannot responsibly start as one undifferentiated
+  effort without repeating exactly the duplicate-services/duplicate-forms
+  problem the brief's own Module 15 ("Quality Review") asks to clean up
+  later.
+- **Alternatives:** pausing/deprioritizing Phase 8 indefinitely to start
+  Phase 9 immediately (rejected by the user — Phase 8 Step 8 was finished
+  first, even though it turned out already done); starting with Help Desk
+  (fully new domain, self-contained, no dependency risk) or HR (foundational
+  for Resource Planning/Time Tracking) instead of Finance (rejected —
+  Finance reuses the most existing schema/services, lowest risk to start).
+- **Affects:** `docs/implementation/progress.md` (Phase 9 status line +
+  Next-3-tasks), this entry. No code yet — Module 1 (Finance) scoping/
+  implementation is the next session's work, not started here.
+
+## 2026-07-29 — `CORS_ALLOWED_ORIGINS` was missing `:3001`, silently blocking every browser-side API call
+- **Decision:** added `http://localhost:3001` alongside the existing
+  `http://localhost:3000` in `apps/api/.env`'s `CORS_ALLOWED_ORIGINS`.
+- **Why:** the web dev server (`apps/web`) falls back to port 3001
+  whenever port 3000 is already occupied (a pre-existing process on this
+  machine holds it) — confirmed live in `next dev`'s own startup log. The
+  API's CORS allowlist only had `:3000`, so every `fetch()` the frontend
+  made to the API from origin `:3001` was silently blocked by the browser
+  — the request left the client, the server logged nothing wrong
+  (CORS is enforced client-side, on the response), and the symptom looked
+  exactly like "the API is unreachable." Spent significant effort earlier
+  in this session diagnosing that as a browser-automation-tool/networking
+  problem before finding the real, one-line cause while adding the
+  Phase 8 AI env vars to the same file.
+- **Alternatives:** free up port 3000 instead (rejected — doesn't fix the
+  underlying fragility; the next environment/session hitting a occupied
+  :3000 would reintroduce the exact same silent failure); listing origins
+  more permissively, e.g. a wildcard or regex (rejected — this app's CORS
+  config is meant to be an explicit allowlist, not a fnmatch surface, and
+  local dev already has cheap explicit ports to enumerate).
+- **Affects:** `apps/api/.env` only (local dev config, git-ignored) —
+  no code change. `apps/api/.env.example`/`env.validation.ts` already
+  documented `CORS_ALLOWED_ORIGINS` as a plain comma-separated list; no
+  update needed there.
+
+## 2026-07-26 — Portal Engineering Review: `use-list-params.ts` uses `router.replace`, not `router.push`
+- **Decision:** every list-state change (search, filter, sort, page)
+  calls `router.replace()` instead of `router.push()`.
+- **Why:** `push` was the original implementation — every keystroke in a
+  debounced search box, every filter Select change, and every page click
+  added its own browser-history entry. Since this hook is shared by all
+  seven business modules' list pages, the effect was systemic: clicking
+  Back after using any list filter stepped through each incremental
+  change one at a time instead of leaving the list page, an experience
+  bad enough to undermine trust in the whole portal's navigation. Found
+  during the Phase 4 Engineering Review by tracing what `setParams()`
+  actually does to browser history, not by a user report.
+- **Alternatives:** debounce at the `router.push` call site instead of
+  fixing the underlying method (rejected — doesn't address the
+  filter/sort/page-click cases, only search-as-you-type); keep `push`
+  and rely on users not really using Back after filtering (rejected —
+  Back is a fundamental browser affordance, not an edge case).
+- **Affects:** `components/data/use-list-params.ts` (fixes all 7
+  modules' list pages simultaneously — no per-module changes needed).
+
+## 2026-07-26 — Portal Engineering Review: consolidated 4 sub-navs and 9 status filters into shared components
+- **Decision:** `inventory-nav.tsx`/`crm-nav.tsx`/`billing-nav.tsx`/
+  `admin-nav.tsx` now each wrap a new shared `components/data/
+  module-sub-nav.tsx`; nine per-module status/type filter `Select`s now
+  wrap a new shared `components/data/enum-filter-select.tsx`.
+- **Why:** both were genuine, mechanical duplication (the explicit target
+  of this review's Part 11) discovered by re-reading the four/nine
+  call sites side by side, not assumed. The sub-nav consolidation also
+  fixed a real correctness gap: each nav had independently reinvented
+  "is this tab active" logic, and only `admin-nav.tsx` (the one module
+  where a tab's href is a literal parent of its siblings) needed the
+  more careful "longest matching prefix" rule the shared component now
+  applies uniformly. The filter consolidation surfaced a genuine,
+  user-visible inconsistency: several modules (Catalog, Warehouses,
+  Suppliers, Follow-ups) Title-Cased their filter labels ("Draft") while
+  the `StatusBadge` in the same table row shows the raw enum text
+  ("DRAFT") — normalized to match the badges rather than leaving the
+  mismatch or arbitrarily picking Title Case everywhere.
+  Payments/Notifications/Audit-Logs list pages do not surface a sort
+  control; that omission was reviewed and kept (ledger-style views
+  defaulting to newest-first is a reasonable, deliberate choice, not
+  something this review added UI to "fix").
+- **Alternatives:** leave the duplication in place, since each instance
+  individually is small (rejected — the review brief explicitly asks to
+  check for this class of duplication, and the inconsistent active-tab
+  logic was a genuine, if narrow, correctness gap, not just a style
+  nit); build one mega-component covering both nav AND filters (rejected
+  — they're unrelated concerns with different prop shapes; two small,
+  focused components are clearer than one that does both).
+- **Affects:** `components/data/{module-sub-nav,enum-filter-select}.tsx`
+  (new); every module's `*-nav.tsx` and every list page with a status/
+  type filter.
+
+## 2026-07-26 — Bespoke wizard: Fabric shown read-only, MeasurementProfile omitted from order submission
+- **Decision:** the Bespoke Customizer wizard's review step shows
+  available fabrics as a read-only, non-selectable reference panel
+  labeled "not submitted with this order," and doesn't surface
+  MeasurementProfile selection anywhere in the order-creation flow at
+  all.
+- **Why:** reading `apps/api/src/modules/orders/dto/create-order-item.dto.ts`
+  and `order.service.ts`'s `computeCustomizationPricing()` directly
+  confirmed neither Fabric nor MeasurementProfile — both real,
+  fully-CRUD backend entities — has any field on `CreateOrderItemDto` or
+  its `selectedOptions` object. Building a "select a fabric" control that
+  silently did nothing on submit would be worse than showing nothing;
+  building a fake `fabricId`/`measurementProfileId` field on the request
+  would violate "do not implement functionality the backend doesn't
+  have." The plan's own aspirational wording (both as wizard "steps")
+  predated this direct-source verification.
+- **Alternatives:** stuff a fabric/measurement reference into the order's
+  free-text `notes` field (rejected — a string-parsing hack masquerading
+  as a real feature, and not something staff would reliably read/parse
+  downstream); build full standalone CRUD pages for Fabric/
+  MeasurementProfile management outside the order flow (rejected as
+  scope creep beyond what any module's bullets asked for this phase;
+  the real endpoints remain available for a future phase to build against
+  if that need is confirmed).
+- **Affects:** `app/(portal)/bespoke/customize/[productId]/customize-wizard.tsx`,
+  `docs/architecture/business-portal.md`.
+
+## 2026-07-26 — Business-module list tables disable `DataGrid`'s built-in column-click sort
+- **Decision:** every `ColumnDef` across all seven modules sets
+  `enableSorting: false`; an explicit "Sort by" `Select` (bound to the
+  real `sortBy`/`sortDirection` query params) is the only sort control.
+- **Why:** `components/ui/data-grid.tsx`'s header-click sort is entirely
+  client-side (`useState<SortingState>` + `getSortedRowModel()`) — it
+  would re-sort only the current page's already-fetched rows, silently
+  contradicting the server-driven sort every list here actually needs
+  across pages. Discovered while wiring the Catalog list (the first
+  module built) before it became a real, confusing bug — not by
+  redesigning `DataGrid` itself, which stays a correct, reusable
+  primitive for cases that genuinely want client-side sort of
+  already-loaded data.
+- **Alternatives:** modify `DataGrid` to accept a controlled
+  `sorting`/`onSortingChange` pair wired to the URL (rejected — a
+  reasonable future improvement, but a larger, riskier change to a
+  shared Phase 0.5 primitive than this phase's own scope called for);
+  leave the column-click sort enabled and accept the inconsistency
+  (rejected — actively misleading, not a neutral omission).
+- **Affects:** every `app/(portal)/*/[module]-list.tsx` file;
+  `docs/architecture/business-portal.md`.
+
+## 2026-07-26 — Built a real `/dashboard` landing page instead of only repointing the nav
+- **Decision:** `app/(portal)/dashboard/page.tsx` (previously nonexistent
+  — a Phase 1 mocked nav entry with no page behind it) is now a real,
+  simple hub page linking into the seven business modules, and
+  `ROUTES.portal.dashboard` / the nav item both keep pointing at it.
+- **Why:** `login-form.tsx`'s `safeRedirectPath()` (built in Phase 3)
+  defaults to `ROUTES.portal.dashboard` for any login with no `?redirect=`
+  — meaning every plain login would have 404'd, invisible until this
+  phase gave the business portal something to check that path against.
+  Fixing the *symptom* (repoint the default redirect to `/catalog`) would
+  have left a nav item and a route constant both named "Dashboard"
+  pointing nowhere; fixing the *cause* (build the page the name promises)
+  is the smaller, more honest change and doesn't touch Phase 3's
+  reviewed auth-redirect logic at all.
+- **Alternatives:** repoint the login default redirect to `/catalog` and
+  drop the "Dashboard" nav item (rejected — treats a real, dormant bug as
+  a naming inconvenience); make `/dashboard` a duplicate of `/admin`'s
+  KPI dashboard (rejected — `/admin` already exists and is
+  permission-gated narrower than every authenticated user should see on
+  first login).
+- **Affects:** `app/(portal)/dashboard/page.tsx` (new),
+  `config/navigation.ts`, `config/routes.ts`.
+
+## 2026-07-26 — Authentication Review: validate `?redirect=` with the real URL parser, not a string prefix check
+- **Decision:** `login-form.tsx`'s `safeRedirectPath()` resolves the
+  `redirect` query param against a fixed base URL (`new URL(path,
+  'http://localhost')`) and requires the resulting origin to match,
+  instead of hand-checking `path.startsWith('//')`.
+- **Why:** a hand-rolled prefix check misses a well-known open-redirect
+  bypass class — the WHATWG URL spec normalizes a leading backslash the
+  same as a forward slash for special schemes (`http`/`https`/etc., a
+  legacy IE-compatibility rule retained in the spec), so `/\evil.com` or
+  `/\/evil.com` resolve to an external origin exactly like `//evil.com`
+  does, silently bypassing a `startsWith('//')`-only check. Letting the
+  real URL parser resolve the path inherits the browser-standard
+  normalization instead of re-deriving every edge case by hand — found
+  during the Authentication Engineering Review, not by an external
+  report.
+- **Alternatives:** a regex denylist for `//`, `\`, and other known
+  bypass characters (rejected — regex denylists for URL-parsing edge
+  cases have a long history of missing the next variant; the real parser
+  is authoritative by construction, not by enumeration); resolving
+  against `window.location.origin` instead of a fixed placeholder
+  (rejected — unnecessary, since only the origin-equality check matters,
+  not the specific origin value used to perform it).
+- **Affects:** `app/(auth)/login/login-form.tsx`.
+
+## 2026-07-26 — Login page: no "remember me," no signup/forgot-password
+- **Decision:** the login page implements only email + password. No
+  "remember me" checkbox, no signup link, no forgot-password link.
+- **Why:** each was checked against the real, frozen backend contract
+  before deciding, not assumed. `POST /auth/login` issues the same
+  `{ accessToken, refreshToken }` pair unconditionally — there is no
+  request field or response variation a "remember me" checkbox could
+  actually change, so adding one would control nothing real. The backend
+  has no registration or password-reset endpoints at all
+  (`apps/api/src/modules/auth/README.md`'s own "No registration, no
+  password reset" scope note) — linking to pages for capabilities the API
+  can't perform would be a dead end, not a convenience.
+- **Alternatives:** build a "remember me" checkbox that only changes
+  client-side behavior (e.g. whether to persist something in
+  localStorage) — rejected, since the access token is deliberately
+  in-memory-only (see the Application Runtime Architecture phase's own
+  cookie-strategy decision) and persisting anything client-side to fake
+  "remember me" would undermine that; build placeholder signup/forgot-
+  password pages that show a "coming soon" message — rejected as
+  needless scope for a capability with no confirmed plan to exist.
+- **Affects:** `app/(auth)/login/login-form.tsx`, `config/routes.ts`
+  (`signup`/`forgotPassword` removed from `ROUTES.auth`).
+
+## 2026-07-26 — Marketing Website Engineering Review: omit broken asset references rather than assert them
+- **Decision:** where a review finding was "this metadata/JSON-LD field
+  points at an asset or route that doesn't exist" (`/og/default.png`,
+  `/logo.png`, a `/search` route), the fix was to omit the field entirely
+  (making it optional where the function signature required it, e.g.
+  `blogPostingSchema`'s `image`), not to invent a placeholder value to
+  keep the field populated.
+- **Why:** a schema/meta field that's absent is honestly incomplete; one
+  that's present but 404s is actively misleading to crawlers and, for
+  Open Graph/Twitter images specifically, produces a broken image in every
+  real social share. `lib/seo/schema.ts`'s own header comment already
+  states the principle this follows: "misleading schema is penalized."
+  Confirmed each asset didn't exist by direct filesystem read
+  (`public/og/`, `/logo.png`, `app/` for any `/search` route) before
+  changing anything — not assumed from the code alone.
+- **Alternatives:** leave the references in place until real assets exist
+  (rejected — ships confirmed-broken output in the meantime, for no
+  benefit); generate a placeholder raster image (rejected — no image tool
+  available in this environment; an SVG favicon was created instead since
+  SVG is authorable as text, but OG images need to be raster/reliably
+  sized, which this environment can't produce safely).
+- **Affects:** `lib/seo/metadata.ts`, `lib/seo/schema.ts`,
+  `app/(marketing)/blog/[slug]/page.tsx`, new `app/icon.svg`. Full list:
+  `docs/architecture/marketing-site.md` §10.
+
+## 2026-07-26 — Marketing site: honest early-stage framing instead of fabricated social proof
+- **Decision:** Portfolio (`/work`), Home's "Featured Work" and
+  "Statistics" sections, and Pricing use honest, verifiable content
+  instead of fabricated client names/quotes/logos/traction numbers/exact
+  prices. Specifically: no `testimonials.ts` exists at all; `/work` frames
+  around capabilities/process with a real "case studies coming soon"
+  empty state; Home's stats cite real platform facts (test suite count,
+  coverage, WCAG baseline — see `content/engineering-stats.ts`); Pricing
+  shows scope-differentiated tiers with zero fabricated figures; Contact
+  omits `localBusinessSchema` entirely (no real address/phone to fill it
+  with truthfully).
+- **Why:** confirmed directly with the user before building (Antrique is
+  pre-launch per `docs/product/01-discovery.md`'s real Vision content,
+  despite the filename — "0–6mo: market presence & pipeline," i.e. no real
+  clients yet). Fabricating client social proof, traction numbers, or a
+  business address would be actively deceptive to real site visitors, not
+  a stylistic placeholder choice — a materially different judgment call
+  than an engineering/architecture decision, so it was asked rather than
+  decided unilaterally.
+- **Alternatives:** clearly-fictional sample content (offered as an
+  option; rejected by the user in favor of the honest framing); pausing
+  the phase until real client content was supplied (offered; rejected as
+  unnecessary given the honest-framing option covers the same ground
+  without blocking).
+- **Affects:** `app/(marketing)/work/page.tsx`, `app/(marketing)/page.tsx`
+  (Home), `app/(marketing)/pricing/page.tsx`, `app/(marketing)/contact/
+  page.tsx`, `content/engineering-stats.ts`, `content/pricing-tiers.ts`.
+  Full reasoning: `docs/architecture/marketing-site.md` §2.
+
+## 2026-07-26 — Application Runtime Architecture: BFF session cookie + in-memory access token, not a shared cookie the backend reads
+- **Decision:** the httpOnly session cookie (`SESSION_COOKIE_NAME`) is a
+  Next.js-only concept, written/read exclusively by `app/api/auth/*/route.ts`
+  and `lib/auth/session-cookie.ts`. The real backend (`apps/api`) never sees
+  it — it only ever receives `Authorization: Bearer <token>`, attached
+  client-side from an in-memory-only access token (`store/auth-store.ts`),
+  or server-to-server by the BFF routes themselves via `API_INTERNAL_URL`.
+- **Why:** verified against `apps/api/src/main.ts` and `common/guards/
+  jwt-auth.guard.ts` directly, not assumed: CORS is configured
+  `credentials: false` and the JWT guard only ever extracts a Bearer
+  header, never reads a cookie. A cookie the backend can't read isn't a
+  backend auth mechanism at all — it can only ever be this frontend's own
+  BFF session store. Two env vars the Foundation phase had already
+  reserved (`API_INTERNAL_URL`, `SESSION_COOKIE_NAME`) confirmed this was
+  the intended design, not a new pattern being introduced.
+- **Alternatives:** storing the access token in a regular (non-httpOnly)
+  cookie or localStorage so client JS could read it directly (rejected —
+  either exposes a bearer-usable credential to any XSS on the page, a
+  strictly worse security posture than keeping it in memory only);
+  proxying every single API call through the Next.js server so the browser
+  never talks to `apps/api` directly (rejected — `services/api/client.ts`'s
+  direct-to-`NEXT_PUBLIC_API_BASE_URL` design already existed from the
+  Foundation phase, and restructuring it into a full proxy layer would be
+  redoing already-frozen prior-phase work for no requirement in this
+  phase's brief).
+- **Affects:** `lib/auth/*`, `app/api/auth/*`, `services/api/interceptors.ts`,
+  `services/api/request.ts`, `store/auth-store.ts`,
+  `providers/auth-provider.tsx`, `middleware.ts`. Full writeup:
+  `docs/architecture/application-runtime.md` §5.
+
 ## 2026-07-23 — Phase 5: corrected several docs asserting a superseded contract/status, rather than rewriting them to match reality
 - **Decision:** for `packages/api-contract/openapi/openapi.yaml` (a
   941-line Phase-0 design draft describing cursor pagination, RFC 9457

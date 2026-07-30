@@ -3,38 +3,1354 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 Review — Phase 5 (Testing & Documentation Review) in progress**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued**
+
+**Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
+(Email Assistant) was already fully built, tested, and wired in — module,
+controller, service, DTOs, seeded/granted `emails:send` permission, 12
+passing tests — but had no log entry here, so this file's own "Next 3
+tasks" list still called it undone. Backfilled below after re-verifying
+with real commands (full suite: 183 suites/1051 tests passing; live
+`/email-assistant/generate` call against the real dev server), not
+assumed from the code alone.
+
+Backend v1.0 is complete, tagged (`v1.0.0`, commit `27ae571`), and API-frozen
+— confirmed via `git tag`/`git log`, not assumed. **Known documentation gap,
+not fixed here:** the detailed log below still only narrates Backend v1.0
+Review Phases 1–5; the user's own account (this session) says six review
+phases ran before the v1.0.0 tag, but no Phase 6 entry exists in this file
+and this session has no visibility into what Phase 6 covered beyond the
+release commit's message. A future backend-focused session should backfill a
+real Phase 6 entry from source/git history rather than this gap being
+silently carried forward indefinitely.
+
+`apps/web`'s Frontend Engineering Foundation phase (tooling, structure, API
+typing, providers, state, error/loading architecture), the Design System &
+Component Library phase (tokens, responsive system, ~35 components, form/
+icon/animation/3D/media foundations, accessibility), the Application Runtime
+Architecture phase (real layouts, the portal application shell, navigation
+system, authentication architecture wired to the frozen backend, completed
+API runtime, query conventions, cross-cutting state, upgraded error/loading
+boundaries), AND the real public Marketing Website (15 pages — Home,
+Services, Industries, Work, About+Process, Pricing, Resources, Blog
+listing+detail, FAQ, Contact, Quote, Privacy, Terms) are all now complete —
+see the log below. The Marketing Website *is* Sprint
+2's real scope, built directly from this session's page-by-page brief
+rather than from a pre-authored `sprint-02.md` task list (that list was
+never recovered — see blockers.md; resolved by building directly from the
+product docs' real, correctly-content-matched files instead of blocking on
+authoring an intermediate task list first).
+
+**Phase 7 update:** the Contact form's lead-capture route is no longer a
+logged-only placeholder — `apps/api` gained a real `ContactRequest`
+consumer (the model existed since Phase 1.1A, unused) plus a brand-new
+`NewsletterSubscriber` model/route, both wired to real transactional
+email (Resend) and the marketing site's Contact/Newsletter forms now
+persist for real. The Quote form's route is still an unconnected,
+logged-only placeholder — out of this phase's scope. `apps/api` also
+gained its first real file-upload capability (`POST
+/products/:id/images`, S3-compatible storage) — see that log entry
+below for both.
+
+**Phase 7 workflow audit + Project/Task/Milestone module:** a full
+workflow-matrix audit against the Lead→...→Archive lifecycle
+(`docs/implementation/phase-7-workflow-matrix.md`) found most of the CRM/
+billing surface already partially built, but confirmed one genuine
+greenfield gap — Project/Milestone/Task management didn't exist at all
+(schema modeled since Phase 1.1A, zero application-layer consumers, no
+migration ever generated). That gap is now closed: a real `ProjectsModule`
+(Project/Milestone/Task/Document/Comment — five controller/service/
+repository triads, all writing to a shared `ActivityLog`) plus the matching
+`apps/web` workspace (list page, and a project detail page with Milestones/
+Tasks-List-and-Kanban/Files/Activity tabs) are built, tested (23 new specs,
+966 total passing), and verified end-to-end against a live server
+(create → milestone → task → status change → comment → file upload →
+completion % → archive, plus error-path checks). See the newest log entry
+below for the full scope and what's explicitly deferred (Kanban
+drag-and-drop, calendar view, task dependencies, project budget, full
+document management, and notifications-on-project-events all remain open).
 
 **Note on the sections below:** `apps/api` backend work stopped being tracked
 against the Sprint table directly partway through Sprint 1 and has been
 tracked ever since via a separate **Milestone** system (M1–M14, all
-implemented, validated, and now formally reviewed) and, since Milestone 14,
-a **Backend v1.0 Review** phase sequence (Phase 1 Architecture, Phase 2 Code
-Quality, Phase 3 API Contract/Freeze, Phase 4 Frontend Readiness — all
-complete and approved; Phase 5 Testing & Documentation in progress; see the
-"In progress right now" log below for the authoritative, detailed record of
-every milestone and phase). The Sprint table immediately below is the
-project's ORIGINAL full-platform plan (marketing site + portal + admin, per
-CLAUDE.md's scope) and still accurately tracks the parts of that plan
-untouched by the backend Milestone work — `apps/web` (marketing site,
-Sprint 2; portal, Sprint 4) has genuinely not been started. Do not read the
-table below as "nothing has shipped" — the backend (`apps/api`) is a
-complete, production-ready, API-frozen modular monolith; see the log below
-for what that means concretely.
+implemented, validated, and now formally reviewed) and a **Backend v1.0
+Review** phase sequence (Phase 1 Architecture, Phase 2 Code Quality, Phase 3
+API Contract/Freeze, Phase 4 Frontend Readiness, Phase 5 Testing &
+Documentation — all logged below; see the note above re: Phase 6). The
+Sprint table immediately below is the project's ORIGINAL full-platform plan
+(marketing site + portal + admin, per CLAUDE.md's scope) and still
+accurately tracks the parts of that plan untouched by the backend Milestone
+work. Do not read the table below as "nothing has shipped" — the backend
+(`apps/api`) is a complete, production-ready, API-frozen modular monolith,
+and `apps/web` now has its engineering foundation; see the log below for
+what that means concretely.
 
 ## Sprint status (original full-platform plan — apps/web scope not yet started; see note above for apps/api)
 | Sprint | Theme | Status |
 |--------|-------|--------|
-| 1 | Foundation | 🟨 In progress (backend scope superseded by the Milestone system below; infra-as-code/Terraform specifically not yet done) |
-| 2 | Marketing site | ⬜ Not started (task list needs authoring — see blockers.md) |
-| 3 | Conversion + CRM ◆ M1 | ⬜ Not started (unrelated to "Milestone 1" in the M1–M14 backend system below — same "M1" label, two different numbering schemes, see note above) |
-| 4 | Portal core | ⬜ Not started |
-| 5 | Billing + collab ◆ M2 | ⬜ Not started |
-| 6 | Admin + hardening ◆ M3 | ⬜ Not started |
+| 1 | Foundation | 🟨 In progress (backend scope superseded by the Milestone system below, infra-as-code/Terraform specifically not yet done; `apps/web` Frontend Engineering Foundation + Design System + Application Runtime Architecture all now complete, see log below) |
+| 2 | Marketing site | ✅ Done — 15 real pages live, see log below (originally blocked on an unauthored task list, resolved by building directly from the product docs instead; the doc's own "Service template ×15 / Industry template ×10 detail pages" line item remains genuinely not done — only the hub pages exist) |
+| 3 | Conversion + CRM ◆ M1 | ✅ Done — real CRM (Leads/Follow-ups/Customer Notes+Activity) built as part of the Business Portal phase below, not as a separate sprint; **Phase 7**: Contact form now persists to a real `ContactRequest` row + sends real email (Resend) — still not linked into the CRM `Lead` pipeline (`convertedLeadId` exists on the schema, unused); Quote form remains an unconnected, logged-only placeholder |
+| 4 | Portal core | ✅ Done — Catalog, Bespoke Customizer (→ order creation), Orders, Inventory, CRM, Billing, Admin all built against the real, frozen Backend v1.0 API; see the Business Portal log entry below |
+| 5 | Billing + collab ◆ M2 | 🟨 Billing done (Invoices/Payments, see log below); "collab" partially done — Phase 7 added a real Project/Milestone/Task/Document/Comment module (see newest log entry) covering the delivery-workspace half; no messaging module, and Document upload is narrow (no versioning/categories/tags — Step 9 of the Phase 7 spec, still open) |
+| 6 | Admin + hardening ◆ M3 | 🟨 Admin dashboard/notifications/audit-logs/reports done (see log below); "hardening" (perf/security pass over the business portal) not yet a separate phase |
 
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 9, Module 1, Step 1 (Vendor Management) (`apps/api` + `apps/web`)**
+  — first Phase 9 module, scoped and approved with the user before
+  starting (full 7-step Module 1 roadmap in the approved plan; only Step
+  1 built this pass). New `apps/api/src/modules/finance/` module (not
+  crammed into `billing/`, which owns Invoice/Payment/Tax specifically):
+  `Vendor` model (name/slug/contact fields/gstin/paymentTerms/status/
+  notes + full audit columns) — deliberately a NEW model, not a reuse of
+  `Supplier` (Milestone 7 — product/inventory sourcing only, no payment-
+  terms/tax-ID concept, a different business relationship). Full CRUD
+  (Create/List/Get/Update, no Delete — archives via the ordinary update
+  route's `status` field, same shape `Client` establishes), new
+  `vendors:read`/`vendors:write` RBAC (mirrors `clients:read/write`'s
+  tier: manager+project_manager read, manager+ write), 14 new tests, full
+  suite now 186 suites / 1065 tests, all passing. `apps/web`: `features/
+  finance/{api,hooks}`, `lib/validation/vendor.ts`, and full `/finance/
+  vendors` list/create-dialog/detail/edit-dialog pages mirroring `crm/
+  clients/`'s exact pattern (`ResourceTable`/`ListToolbar`/
+  `ListPagination`/`DetailPageHeader`, react-hook-form+zod), new
+  top-level "Finance" portal nav entry + dashboard card.
+  - **Also fixed, found while generating this step's migration**: a
+    pre-existing bug in `20260729090000_add_project_management` where
+    the file's own SQL redundantly re-declared `CREATE TYPE`/
+    `CREATE TABLE`/RLS for six tables already created by earlier
+    migrations (confirmed via grep) — broke replay against any genuinely
+    fresh database (a new developer's machine, CI, production). Rewritten
+    to contain only the genuinely-new `comments` table's SQL; tracking
+    checksum corrected via a metadata-only `UPDATE` (no schema/data
+    touched — confirmed safe first, since this migration's
+    `applied_steps_count` was already 0). See decisions.md.
+  - **Also fixed, found live while clicking "Edit" on the new Vendor
+    detail page**: `components/forms/form.tsx`'s `FormLabel` unconditionally
+    calls `useFormField()`, which throws (`"useFormField must be used
+    within a <FormField>"`) outside a real react-hook-form `<FormField>`
+    Controller — crashed the whole page via the portal's route error
+    boundary. The Status field in the new `VendorFormDialog` uses local
+    `useState` (not an RHF-registered field), the same pattern
+    `ClientFormDialog` (Phase 7) already established — meaning this
+    EXACT crash was a pre-existing, undiscovered bug in the already-
+    shipped `ClientFormDialog` too, just never triggered live before now.
+    Fixed both: swapped `FormLabel` → plain `Label` (`@/components/ui/
+    label`, no RHF dependency) for the Status field in both dialogs.
+    Verified live end-to-end after the fix: Edit dialog opens, Save
+    changes submits, `updatedAt` timestamp confirmed changed via the API.
+  - Live-verified the full lifecycle end-to-end against the real dev
+    server (not just tests): logged in as the seeded admin through the
+    actual browser UI, created a vendor via curl and via the real "New
+    vendor" dialog, listed/filtered, opened the detail page, edited and
+    saved, confirmed a duplicate-slug `409 Conflict` and RBAC decorator
+    wiring. `pnpm --filter @antrique/api typecheck/lint/test` and
+    `pnpm --filter @antrique/web typecheck/lint` all clean; OpenAPI
+    regenerated.
+  - Steps 2-7 (Purchase Orders, Expenses, Invoice PDF+email, Refund
+    Management, GST Tax Configuration, Revenue/P&L/Cash-Flow dashboards)
+    remain open, queued in dependency order — see the approved plan / this
+    file's own Module 1 roadmap note above.
+- **Bug fix — `TextReveal` scroll-reveal headings clipped the tops of
+  glyphs (`apps/web`)** — found via live Chrome verification of the
+  marketing site (not a report, discovered while checking the running
+  app): every heading using the shared `TextReveal` component
+  (`HomeHero`'s hero title, and every `PageHero`/`SectionHeading` title
+  site-wide) permanently clipped the top of each letter in the Fraunces
+  heading font, even after the scroll-reveal animation finished. Root
+  cause: `text-reveal.tsx`'s per-word `overflow-hidden` wrapper sized its
+  clip box to exactly the heading's line-height (Tailwind's `text-5xl`/
+  `text-6xl` utilities set `line-height: 1`, zero headroom), and
+  Fraunces' actual glyph metrics exceed that box. Fixed by adding
+  `pt-[0.2em] mt-[-0.2em]` to the wrapper (extra clip headroom, the
+  negative margin keeps layout position unchanged) — verified live on
+  the homepage hero, "Six commitments" section, and the About/Pricing
+  page titles after the fix. `apps/web/src/components/motion/
+  text-reveal.tsx` only; no other files touched.
+- **Phase 8 — AI Workspace, Step 8 (Email Assistant) (`apps/api`)** —
+  backfilled 2026-07-30: found already fully built and passing, not
+  logged. Two independent actions, not a generate/approve pair like Step
+  6's Task Generator:
+  - `POST /email-assistant/generate` — drafts a proposal/follow-up/
+    meeting-request/project-update/invoice-reminder email from a
+    recipient name + purpose + optional key points. Renders the seeded
+    `client-email-v1` template (updated this step for its first real
+    consumer — renamed `clientName` → `recipientName`, added
+    `emailType` so the model knows which of the five kinds it's
+    drafting). Real AI call, writes nothing, sends nothing. Gated
+    `prompt_templates:write`, same tier as every other Phase 8 drafting
+    action.
+  - `POST /email-assistant/send` — takes human-reviewed `to`/`subject`/
+    `body` and sends it for real through the existing, unchanged
+    `EmailService` ("Reuse EmailService" — this step's own brief). No AI
+    call, no reference back to a generated draft required. Gated under a
+    new `emails:send` permission (not `prompt_templates:write` — a real
+    external side effect, the same "the real-effecting action gets its
+    own tier" treatment `orders:cancel`/`invoices:void`/`payments:refund`
+    already established), seeded and granted to manager/project_manager.
+  - Nothing persists — no "store drafts" requirement for this step
+    (unlike Step 7's Content Assistant), so `EmailType` is a plain TS
+    union, not a database enum, and there's no repository in this
+    module. `EmailService.send()` requires `html`; the AI drafts plain
+    text, so `send()` does a minimal escape + paragraph-break conversion
+    rather than pulling in a markdown renderer.
+  - 12 tests (service + controller), full suite now 183 suites / 1051
+    tests, all passing (verified 2026-07-30, not assumed). Verified live
+    against the real dev server: `generate` hit the same known
+    account-credit 502 every Step 3+ call has hit (proving the
+    auth/RBAC/prompt-render/AiService chain works end-to-end); `send`
+    was deliberately not live-called (it would genuinely deliver an
+    email through the configured Resend key) — same caution the
+    module's own README documents.
+  - Still open: no `apps/web` UI exists for Steps 3–8 of Phase 8 at all
+    (not specific to Step 8) — the first real frontend surface for the
+    AI Workspace remains unbuilt.
+- **Phase 8 — AI Workspace, Step 7 (Content Assistant) (`apps/api`)** — the
+  one Phase 8 generation feature whose own spec explicitly requires
+  persistence ("Store drafts only. Never publish automatically.") rather
+  than the ephemeral shape Steps 3-5 and Step 6's own `generate()` use:
+  - New `ContentDraft` model + `ContentDraftType` enum (CASE_STUDY,
+    SERVICE_DESCRIPTION, BLOG_DRAFT, FAQ, LANDING_PAGE, SOCIAL_POST) and
+    `CONTENT_GENERATION` added to `PromptCategory` (standalone `ALTER
+    TYPE` migration first, same precedent as Step 6's `TASK_GENERATION`).
+    One shared `content-generation-v1` template handles all six output
+    kinds via a `{{contentType}}` variable (a human-readable label, e.g.
+    "case study" not "CASE_STUDY") rather than six separate templates.
+  - `POST /content-assistant/generate` — one AI call, always persists a
+    real `ContentDraft` row, even on a bad JSON parse (falls back to a
+    generic title + the model's raw text as the body — Step 7's own spec
+    requires storing the draft regardless, unlike every other Phase 8
+    parser which fails closed to nothing). `GET /content-assistant` /
+    `GET /content-assistant/:id` list/get (paginated, filterable by
+    type), `PATCH /content-assistant/:id` (human edits title/body, no AI
+    call), `DELETE /content-assistant/:id` (soft delete, no publish route
+    exists — this app has no CMS/content-publish pipeline for a draft to
+    graduate into).
+  - New `content_drafts:read`/`write`/`delete` permissions — unlike every
+    prior Phase 8 step, this is a real persisted resource with its own
+    CRUD surface, so it gets its own permission tier (granted to
+    `manager`/`project_manager`, same tier as `prompt_templates:*`)
+    rather than reusing an existing key.
+  - 17 new tests (service + controller), full suite now 181 suites / 1039
+    tests, all passing. Verified end-to-end against the real, live dev
+    server: `generate` hit the same known account-credit `502` every
+    Step 3+ call has hit (confirming the render→AI-call chain works; the
+    repository `create()` call sits after the AI call, so a failed
+    generation correctly leaves no orphaned draft row); the full CRUD
+    surface (list/get/patch/delete, including the soft-delete →
+    subsequent 404) was verified against a manually-inserted real row
+    (via a one-off Prisma script, since a successful AI completion isn't
+    available in this environment) — all four calls behaved correctly
+    against the live server and real Postgres.
+  - Along the way: the dev server hit a stale-port issue after this
+    session's file changes (`EADDRINUSE` on a watch-mode restart that
+    didn't cleanly release the old process) — killed the orphaned process
+    and started fresh; not a code bug, a recurrence of this sandbox's
+    documented dev-server flakiness (see "Notes for next session").
+- **Phase 8 — AI Workspace, Step 6 (Task Generator) (`apps/api`)** — two
+  actions, the one Phase 8 feature so far where "AI enhances the existing
+  workflow" means literally creating rows in an existing table rather than
+  only ever handing back a draft:
+  - `POST /task-generator/generate`: from a milestone and/or free-text
+    requirements, renders the new seeded `task-generation-v1` template
+    (added this step — `TASK_GENERATION` appended to the `PromptCategory`
+    enum via its own standalone `ALTER TYPE ... ADD VALUE` migration, run
+    before the value was referenced, same pattern as every prior enum
+    addition), calls `AiService`, and returns a **flat** list of
+    epic/story/task/subtask suggestions (title/description/
+    acceptanceCriteria). No nested Epic/Story/Subtask entities exist in the
+    schema and none are added — Phase 7's real model is only
+    `Project → Milestone → Task`; `type` is informational metadata a human
+    reads, not a new persisted hierarchy. Writes nothing to the database,
+    same as Steps 3–5.
+  - `POST /task-generator/approve`: the actual "Allow manual approval" step
+    this spec step names explicitly — takes a reviewed/edited subset of
+    suggestions and creates **real** `Task` rows through Phase 7's own,
+    unchanged `TaskService.create()` (newly exported from `ProjectsModule`
+    for this). No AI call. Gated under the existing `tasks:write`
+    permission (the same one `POST /tasks` already requires), not
+    `prompt_templates:write`. Creates tasks sequentially (not
+    `Promise.all`) — approving N independent tasks isn't a financial
+    operation that needs all-or-nothing atomicity.
+  - 13 new tests (service + controller), full suite now 179 suites / 1022
+    tests, all passing. Verified end-to-end against the real, live dev
+    server: `generate` hit the same known account-credit `502` every
+    Step 3+ call has hit (confirming the render→AI-call chain works);
+    `approve` is the **first Phase 8 endpoint to genuinely succeed** —
+    `201` with two real `Task` rows created against a real seeded project
+    and confirmed present via the ordinary `GET /tasks` list.
+- **Phase 8 — AI Workspace, Step 5 (Project Estimator) (`apps/api`)** —
+  `POST /project-estimator/estimate`: takes a free-text scope of work,
+  renders the seeded `project-estimation-v1` template (Step 2, updated
+  this step — the original Steps 1–2 seed only covered hours/sprints/
+  team/complexity/confidence, missing the spec's own `budgetRange`/
+  `dependencies` fields, added now), calls `AiService`, and returns:
+  estimated hours, sprint count, team size, budget range, complexity
+  (Low/Medium/High), dependencies, and a confidence score (0-100).
+  `confidenceScore` is `number | null` — the model isn't guaranteed to
+  return a clean number even when everything else parses; a non-numeric
+  value falls back to `null` (tested explicitly), not a fabricated 0.
+  - Same "writes nothing to the database" design as Steps 3/4 — an
+    estimate is a starting point for a human-owned decision, never
+    auto-applied to a real `Project`/`Quotation` row.
+  - No new dependencies (unlike Step 4's `pdf-parse`/`mammoth`) — same
+    shape as Step 3, just a different template/response schema.
+  - Gated under `prompt_templates:write`, same reasoning as Step 4 (no
+    lead/client/project link on this endpoint).
+  - 6 new tests (service + controller), full suite now 177 suites / 1009
+    tests, all passing. Verified end-to-end against the real Anthropic
+    API — same known account-credit `502` as every Step 3+ call so far,
+    confirming the render→AI-call chain works correctly again.
+- **Phase 8 — AI Workspace, Step 4 (Requirement Analyzer) (`apps/api`)** —
+  `POST /requirement-analyzer/analyze`: multipart upload (PDF/DOCX/MD/TXT,
+  max 20MB), extracts the document's text (new `DocumentTextExtractor` —
+  `pdf-parse` v2's real API for PDF, `mammoth` for DOCX, plain UTF-8 read
+  for MD/TXT), stores the original file via the existing `StorageService`
+  (this step's own "Reuse StorageService" instruction — a real, new
+  `StorageService` consumer beyond product images), renders the seeded
+  `requirement-analysis-v1` template (Step 2, updated this step to
+  request structured JSON the same way `proposal-generation-v1` was in
+  Step 3), calls `AiService`, and returns: features, modules, risks, a
+  timeline estimate, and clarifying questions for the client. Same
+  `rawText`/`parsedSuccessfully` fallback shape as Step 3's
+  `ProposalDraftResponseDto`, plus a `truncated` flag (documents over
+  ~40k extracted characters are analyzed on the first 40k, not rejected —
+  real requirement briefs are nowhere near that size in practice).
+  - Two new dependencies: `pdf-parse@2.4.5` (its v2 API is a real
+    rewrite from v1 — a class + `getText()`/`destroy()`, not the old
+    default-export function; confirmed against its own README before
+    writing the extractor, not assumed from v1 familiarity) and
+    `mammoth@1.12.0`.
+  - Same "writes no new business-entity row" design as Step 3 — the
+    analysis is a draft for human review; the uploaded document itself
+    IS persisted (via `StorageService`), as an audit trail of what was
+    analyzed, not a new `RequirementAnalysis` table.
+  - File type is validated by extension, not the browser-supplied
+    `Content-Type` — MIME sniffing for `.md` is unreliable across clients
+    (confirmed live: curl sends `.md` as `application/octet-stream`).
+  - Gated under `prompt_templates:write` (no lead/client link exists on
+    this endpoint, unlike Step 3, so there's no existing CRM-workflow
+    permission to piggyback on).
+  - 13 new tests (extractor + service + controller — `pdf-parse`/
+    `mammoth` themselves are mocked in the extractor spec, not exercised
+    against real binary fixtures), full suite now 175 suites / 1003
+    tests, all passing. Verified end-to-end against the real Anthropic
+    API with a real uploaded `.txt` file (reached the same known
+    account-credit `502` as Steps 1–3, after successfully extracting text
+    and uploading to storage — proves the whole pipeline up to the AI
+    call), plus real validation checks: an unsupported `.exe` upload
+    correctly `400`s, and a real `.md` file correctly extracts and
+    reaches the AI call (not rejected).
+- **Phase 8 — AI Workspace, Step 3 (Proposal Generator) (`apps/api`)** —
+  `POST /proposal-generator/generate`: takes exactly one of clientId/
+  leadId plus a free-text requirements brief, resolves the subject's
+  display name (`Client.name` or `Lead.organization ?? contactName`),
+  renders the seeded `proposal-generation-v1` template (Step 2, updated
+  this step to instruct the model to return a single JSON object — no
+  markdown fences, exact key names), calls `AiService` for a real
+  completion, and parses the response into a structured draft: scope,
+  deliverables, timeline, pricing assumptions, risks, exclusions,
+  technology stack. `rawText`/`parsedSuccessfully` are always returned
+  alongside the structured fields so a caller can fall back to the raw
+  model output on a parse failure (markdown-fenced JSON is stripped and
+  retried; genuinely unparseable prose falls back cleanly) rather than
+  silently misattributing content to the wrong field.
+  - **Writes nothing to the database** — a deliberate design decision, not
+    a shortcut: "Allow human editing before sending" (this step's own
+    brief) means the draft is meant to be reviewed and copied into a real
+    `Quotation` through the existing, unchanged `POST /quotations` flow.
+    Auto-creating billable `QuotationItem` rows from an LLM's pricing
+    guesses would cross from "AI assists" into "AI replaces a financial
+    decision" — the Phase 8 brief's own explicit boundary. See
+    `modules/proposal-generator/README.md`.
+  - Reuses `PromptTemplateService` (new `renderByKey()` method, looks up
+    by the template's stable `key` rather than a fragile seeded UUID) —
+    no prompt logic duplicated in this module, per Step 14's own
+    "avoid duplicated prompt logic" rule. `PromptsModule` now exports
+    `PromptTemplateService` for this reuse.
+  - Gated under the existing `quotations:write` permission, not a new
+    AI-specific one — drafting a proposal is the same business action
+    `POST /quotations` already gates, AI is how it's drafted.
+  - 9 new tests (service + controller), full suite now 172 suites / 990
+    tests, all passing. Verified end-to-end against the real Anthropic
+    API again — same real, structured `502` (account credit balance) as
+    Steps 1–2, confirming the full chain (auth → RBAC → client resolution
+    → template render → AI call → error surfacing) works correctly; also
+    verified both validation-error paths (missing / both of clientId+
+    leadId → `400`) without needing a live AI call.
+- **Phase 8 — AI Workspace, Steps 1–2 (Provider Abstraction + Prompt
+  Library) (`apps/api`)** — the first two steps of a new 14-step spec
+  ("Phase 8"), scoped deliberately to just the foundation everything else
+  depends on (confirmed with the user before starting — the full spec
+  spans provider adapters, 6 separate AI features, a knowledge base with
+  semantic search, a chat workspace, cost tracking, admin settings, and
+  security/governance; none of that is built yet, see the deferred list
+  below).
+  - **Step 1 (`apps/api/src/ai/`)** — a real strategy/factory provider
+    abstraction: `AiProviderAdapter` interface, one adapter per provider
+    (Anthropic, OpenAI, Gemini, OpenRouter — all four requested in the
+    spec), `AiProviderFactory` (resolves/caches by provider, defaults from
+    config), `AiService` (the one entrypoint business logic should ever
+    call). **Anthropic is real and tested** — `@anthropic-ai/sdk`, a real
+    user-supplied `ANTHROPIC_API_KEY`, verified against the live API (see
+    below). OpenAI/Gemini/OpenRouter are structurally complete against
+    each provider's real REST API shape (plain `fetch()`, not an SDK) but
+    **live-untested** — no key configured for any of the three. Every
+    provider's key is optional; `AiService.complete()` throws a clear 503
+    for whichever isn't configured, same "reduced capability, not a boot
+    failure" treatment `EmailService`/`StorageService` already established.
+  - **Step 2 (`apps/api/src/modules/prompts/`)** — a real, tenant-scoped,
+    versioned `PromptTemplate` CRUD (Create/List/Get/Update — no Delete,
+    deactivate via `isActive` on update, same shape `ClientController`
+    already follows) plus two actions: `POST /prompt-templates/:id/render`
+    (pure `{{variable}}` string interpolation, no AI call) and
+    `POST /prompt-templates/:id/test` (renders, then calls `AiService` for
+    a real completion — the one action in this whole phase with real
+    external cost). 9 real templates seeded (`prisma/seed.ts`), one per
+    category in the spec's own example list (proposal generation,
+    requirement analysis, website audit, SEO recommendations, client email,
+    meeting summary, scope generation, project estimation, risk analysis).
+  - New migration (`20260729100000_add_ai_workspace_prompt_templates`),
+    RBAC (`prompt_templates:read/write`, Manager/Project Manager tier only
+    — a deliberately conservative default for a brand-new capability with
+    real external cost, not opened to sales/client this phase). 11 new
+    tests (factory + service + controller), full suite now 170 suites /
+    981 tests, all passing. `apps/web` untouched — Steps 1–2 have no
+    frontend deliverable; the first UI-facing consumer is Step 3+.
+  - **Verified end-to-end against the real Anthropic API, not mocked**:
+    logged in, listed the 9 seeded templates, rendered one with real
+    variables, then called `/test` — got a real network round-trip and a
+    real, structured error back from Anthropic (`400`, insufficient
+    account credit balance) — proves the key/auth/request path is
+    genuinely live, not just structurally plausible. Along the way, fixed
+    `AnthropicAdapter` to translate the SDK's own `APIError` into a real
+    `BadGatewayException` (502, with Anthropic's actual message) instead
+    of leaking an opaque 500 — verified the fix surfaces correctly.
+    Getting an actual successful completion just needs credit added to
+    that Anthropic account — outside this session's control.
+  - Also fixed, while in `apps/api/.env`: `CORS_ALLOWED_ORIGINS` only listed
+    `:3000`, but the web dev server was running on `:3001` (port 3000 was
+    occupied) — every browser-side `fetch()` from the frontend to the API
+    was being silently CORS-blocked. This was the real cause of the
+    "browser can't reach the API" investigation from earlier in this
+    session (see decisions.md) — not a code bug, a one-line local `.env`
+    config gap. Added `:3001` alongside `:3000`.
+  - Explicitly deferred (Steps 3–14, none started): Proposal Generator,
+    Requirement Analyzer (PDF/DOCX/MD/TXT upload+extraction), Project
+    Estimator, Task Generator, Content Assistant, Email Assistant, a
+    Knowledge Base with semantic search (designed for future RAG), an
+    AI Chat Workspace scoped to a project's own context, Usage & Cost
+    Tracking, AI Settings (admin-configurable providers/keys/quotas), and
+    the full Security & Governance step (prompt logging, sensitive-data
+    filtering, rate limits beyond the app-wide default, audit-log wiring
+    for AI actions specifically). `AiService`/`AiCompletionResult` were
+    shaped with token/latency fields already present so Step 11 doesn't
+    require touching the provider layer again, but no usage-log
+    persistence exists yet — nothing is tracked/stored today.
+- **Phase 7 — Business Workflow Audit + Project/Task/Milestone module
+  (`apps/api` + `apps/web`)** — Step 1 of the Phase 7 spec first
+  (`docs/implementation/phase-7-workflow-matrix.md`): read the actual code
+  (not docs) across CRM/Billing/Notifications/Audit/Reporting and found
+  most of it already partially built by earlier Phase 7 work, but one
+  genuine greenfield gap — `apps/api/src/modules/projects/` and
+  `content/` were README-only placeholders, never imported into
+  `app.module.ts`, while `Project`/`ProjectMember`/`Milestone`/`Task`/
+  `Document`/`ActivityLog` were already fully modeled in `schema.prisma`
+  since Phase 1.1A with **no migration ever generated for them** —
+  confirmed by diffing `prisma/migrations/` against the schema, and by a
+  live `prisma migrate diff` against the dev DB, which also revealed the
+  6 tables + RLS policies + grants already existed there directly (no
+  `_prisma_migrations` row) — a pre-existing drift from work that predates
+  this session, now reconciled into a real migration
+  (`20260729090000_add_project_management`) rather than left undocumented.
+  - Added one new model, `Comment` (task/milestone XOR via a hand-written
+    CHECK constraint, mirroring `quotations_lead_xor_client_check`) — no
+    comment/annotation model existed anywhere before.
+  - Built `ProjectsModule`: `project`/`milestone`/`task`/`document`/
+    `comment` controller+service+repository triads, tenant-scoped,
+    RBAC-gated (`projects:*`/`milestones:*`/`tasks:*`/`documents:*` were
+    already seeded, unconsumed, since Phase 1.1B — same "found already
+    seeded" situation `clients:*` was in; `comments:*` is new). Every
+    write path records an `ActivityLog` row — the model already had a
+    ready `projectId` FK for exactly this, so the Project workspace's
+    Activity tab has real data without taking on the full cross-entity
+    Activity Timeline (Step 10) scope. `GET /projects/:id` computes
+    `completionPercent` on read (approved/total milestones) rather than a
+    stored column. Document upload/list/delete reuses the existing
+    `StorageService` (added a public `getPublicUrl()` for reconstructing
+    URLs on list) — no versioning/categories/tags (Step 9's job).
+  - `apps/web`: `features/projects/{api,hooks}` mirroring `features/crm/`,
+    a projects list page, and a project detail page with Milestones/
+    Tasks (List + a basic Kanban — status columns, click-to-advance, no
+    drag-and-drop)/Files/Activity tabs, all built on the existing generic
+    `components/data/*` table/pagination/filter primitives — no new
+    primitives needed. `Projects` returns to the portal sidebar nav
+    (`config/navigation.ts`) — it was explicitly removed there in an
+    earlier phase as a mocked dead link; now backed by a real module.
+  - Seed data: `ProjectMember`/`Milestone`/`Task` rows against the
+    already-seeded Saffron/Kestrel projects (`prisma/seed.ts`).
+  - Tests: `project`/`task` controller+service specs (23 new, mirroring
+    `lead.controller.spec.ts`'s DI-wired-TestingModule pattern) — full
+    suite now 167 suites / 966 tests, all passing. `apps/web` typecheck +
+    lint clean.
+  - Verified end-to-end against a live server (not just unit tests):
+    login → create client/project/milestone/task → move task to DONE →
+    add comment → upload a real file (Supabase-backed `StorageService`,
+    got back a real object URL) → approve the milestone → confirmed
+    `completionPercent` recalculated 0%→100% → archived the project — plus
+    error paths (invalid FK → 400, comment XOR violation → 400, missing
+    project → 404). `apps/web`'s own `pnpm build` hits the same
+    pre-existing local-Windows `output: standalone` symlink EPERM already
+    documented in Sprint 1's own tooling notes (compile + typecheck +
+    all 50 static pages succeed first) — not a regression, CI builds on
+    Linux.
+  - Explicitly deferred (see the workflow matrix's own list): Kanban
+    drag-and-drop, calendar view, task dependencies (no schema support),
+    project budget (no field — likely derived from `Project.invoices`
+    later, a product decision not made here), full document management
+    (Step 9), Activity Timeline beyond Project (Step 10), notifications
+    firing on project events (Step 11).
+- **Enterprise CRM/Project-Management, Phase 2 — Quotation/Proposal
+  module (`apps/api` + `apps/web`)** — "Proposal Management," built on
+  the **existing** `Quotation`/`QuotationItem` model (schema's own doc
+  comment: "Quote-wizard output") — confirmed via a schema-wide search
+  that no separate `Proposal` model exists anywhere. Create/List/Get/
+  Update (DRAFT only) + 3 terminal actions: `POST :id/send` (DRAFT→SENT
+  — generates a PDF, stores it, fire-and-forgets an email to the lead/
+  client), `:id/accept` (→ACCEPTED), `:id/reject` (→REJECTED).
+  `leadId`/`clientId` XOR enforced app-side (DB CHECK already existed).
+  Item amounts/subtotal/total always computed server-side
+  (`Prisma.Decimal`), never trusted from the client — same discipline
+  `InvoiceService.createFromOrder()` established. `quotationNumber`
+  generated via the same bounded-retry pattern as invoice numbers.
+  - **New shared infra**: `apps/api/src/pdf/` (`DocumentPdfService`,
+    `@Global()`) — one PDF renderer for both Quotation (this phase) and
+    Invoice (Phase 5, planned). **Deviated from the approved plan**: the
+    plan named `@react-pdf/renderer`; built with `pdfkit` instead once it
+    became clear the former would mean introducing React/JSX into a
+    backend that has zero React anywhere — a real architectural addition,
+    not just "a PDF library." `pdfkit` needed no such change. Flagged
+    explicitly in `pdf/README.md`, not silently swapped.
+  - Reused, unchanged: `StorageService.upload()` (already accepted an
+    arbitrary buffer/contentType), `EmailService`/`JobRunner`/
+    `SendEmailJob` (same fire-and-forget pattern as Phase 7's contact
+    form email).
+  - **One additive schema column**: `Quotation.pdfUrl String?` — nothing
+    before this phase generated a PDF, so nothing needed anywhere to
+    store its URL. Migration: `20260729080000_add_quotation_pdf_url`
+    (hand-written — no shell access this session; a plain `ADD COLUMN`,
+    no partial-index landmine involved).
+  - `QUOTATIONS_READ`/`QUOTATIONS_WRITE` added to `permission.constant.ts`
+    (both keys already seeded since Phase 1.1B, dead until now — `sales`
+    already had both grants; `manager` gained `quotations:write` to match
+    the `clients:write` precedent from Phase 1).
+  - `apps/web`: `/crm/quotations` list, `/crm/quotations/new` (a full
+    page, not a dialog — line items need room; `useFieldArray`, this
+    portal's first repeating sub-form), `/crm/quotations/:id` detail
+    (line-item table, PDF download link, Send/Accept/Reject actions).
+  - **Descoped, flagged honestly**: proposal "templates" (would need a
+    new model), "revision history" (no version-chain field exists —
+    `Quotation.version` is the optimistic-lock counter, a different
+    concept), attachments on a quotation (no join table exists).
+  - New deps: `pdfkit`/`@types/pdfkit` added to `apps/api/package.json`
+    — **`pnpm install` needed**, not run this session (no shell access).
+  - Live-verified by the user: `pnpm install` picked up `pdfkit`/
+    `@types/pdfkit` clean; `db:migrate:deploy` applied
+    `20260729080000_add_quotation_pdf_url` (confirmed via "No pending
+    migrations to apply" on the following run); `typecheck`/`lint` clean
+    on both `apps/api` and `apps/web`; `apps/api test` — **163/163
+    suites, 943/943 tests**. Two real bugs found and fixed during this
+    checkpoint, both in `quotation-form.tsx` (the portal's first
+    `useFieldArray` form): (1) `useForm<QuotationFormValues>`'s explicit
+    generic conflicted with what `zodResolver` infers through a
+    `.refine()`-wrapped schema (`ZodEffects`, not a plain `ZodObject`) —
+    fixed by dropping the explicit generic and letting `useForm` infer
+    from the resolver, the standard fix for this known RHF+Zod friction
+    point. (2) `z.coerce.number()` fields lost their `field.value` type
+    through that same implicit inference, resolving to `unknown` against
+    `<Input>`'s expected `value` type — fixed with an explicit
+    `value={field.value as string | number}` cast at each of the 4
+    coerced-number inputs (quantity, unitPrice, taxAmount,
+    discountAmount).
+- **Enterprise CRM/Project-Management, Phase 1 — Client module
+  (`apps/api` + `apps/web`)** — first phase of an 11-phase roadmap (full
+  plan: agency-lifecycle CRM covering Lead→Proposal→Client→Project→
+  Milestone→Task→Invoice→Payment, plus Activity Timeline, Notifications
+  expansion, Reporting Dashboard, and a final audit/code-quality/gap-
+  report pass — see the session that scoped it for the full phase list).
+  Key finding that reshaped the whole roadmap: `Client`/`Project`/
+  `ProjectMember`/`Milestone`/`Task`/`Document`/`Quotation`/
+  `QuotationItem` are **already fully modeled in `schema.prisma`** (found
+  by direct read, not assumed) with FKs already wired (`Invoice` already
+  has `projectId`/`clientId`/`quotationId`; `ActivityLog` already has
+  `projectId`) and their permission keys already seeded — CLAUDE.md's own
+  "projects/content remain unbuilt scaffold" note confirmed literally:
+  zero controllers existed for any of them. This phase is therefore
+  mostly new controller/service/repository/DTO/frontend layers on an
+  already-designed data model, not new domain modeling.
+  - **`Client`** (`apps/api/src/modules/crm/client.{controller,service}.ts`,
+    `repositories/client.repository.ts`) — Create/List/Get/Update, no
+    Delete route (no `clients:delete` permission was ever seeded;
+    archiving happens via the ordinary update's `status` field).
+    `CLIENTS_READ`/`CLIENTS_WRITE` added to `permission.constant.ts`
+    (both keys already existed in `seed.ts`'s catalog, dead until now);
+    `manager` role granted `clients:write` (already had `clients:read`).
+  - **`LeadService.convertToClient()`** (`POST
+    /leads/:id/convert-to-client`) — a second, independent conversion
+    path alongside the pre-existing `convert()` (→ `Customer`, confirmed
+    via direct read to be an unrelated e-commerce lifecycle, not what
+    "Lead → Client" needed). Always creates a new `Client` (never
+    finds-and-links — `Client` has no unique constraint to make that
+    race-safe, unlike `Customer`'s email uniqueness).
+  - **`apps/web`**: `/crm/clients` list + detail pages, and the portal's
+    **first real create/edit entity form** (`ClientFormDialog`,
+    react-hook-form + Zod) — confirmed no such pattern existed anywhere
+    in the portal before this (Lead has read + archive/convert actions
+    only, no create/edit form). Lead detail page gained a "Convert to
+    client" action alongside the existing "Convert to customer"/
+    "Archive".
+  - Live-verified by the user: `typecheck`/`lint`/`test` all clean on
+    `apps/api` (163/163 suites, 943/943 tests — added real coverage for
+    `convertToClient()`, not just a compile fix, in `lead.service.spec.ts`/
+    `lead.controller.spec.ts`/new `client.service.spec.ts`);
+    `apps/web` `typecheck`/`lint` clean. No migration needed — every
+    touched model already existed.
+  - Next: Phase 2 (Quotation/Proposal module — PDF generation, email via
+    the existing `EmailService`, status transitions), pending the user's
+    live functional check of this phase (login, `POST /clients`, convert
+    a lead) before starting.
+- **Real Email (Contact/Newsletter) & Product Image Upload — Phase 7
+  (`apps/api` + `apps/web`)** — the user asked for two previously-
+  placeholder capabilities to become real: contact-form/newsletter
+  submissions actually sending email, and file uploads working. Full
+  research first (confirmed, not assumed): `ContactRequest` was a real
+  Prisma model since Phase 1.1A with **zero** application-layer
+  consumers, its `contact_requests:*` permissions seeded but never added
+  to `permission.constant.ts` (dead); no newsletter/subscriber concept
+  existed anywhere; nothing in this codebase sent email (`Notification.
+  channel = EMAIL` is a state-machine enum value only — no real sender
+  behind it); no file-upload precedent existed anywhere (`ProductImage.url`
+  was populated only as a nested write inside `POST /products`, no
+  standalone image route/repository). Built, additive only, nothing
+  existing changed shape:
+  - **`apps/api/src/email/`** (new, `@Global()`) — `EmailService` wraps
+    the `resend` package; no-ops with a logged warning (not a thrown
+    error) when `RESEND_API_KEY` is unset, so the app keeps working with
+    zero real credentials. `SendEmailJob` runs every send through the
+    existing `jobs/` `JobRunner` (Job/JobContext/retry/dead-letter
+    infrastructure built in Milestone 14, its own README's predicted
+    first real consumer), fire-and-forget — never awaited in a request/
+    response path, so a slow/down provider can't delay or fail a
+    marketing-site form submission.
+  - **`apps/api/src/modules/contact/`** (new) — `POST /contact-requests`,
+    public/unauthenticated (throttled 5/60s, same tier as `POST
+    /auth/login`), `ContactRequest`'s first real controller/service/
+    repository. `ContactRequest.company` added (nullable) — the
+    frontend form already collected it; the model had no real consumers
+    before this phase, so extending it is safe. No `contact_requests:read`
+    route/permission added — no admin triage UI is being built this
+    phase (a real, reasonable future follow-up, not silently dropped —
+    see that module's README).
+  - **`apps/api/src/modules/newsletter/`** (new) — `POST
+    /newsletter-subscribers`, same public/throttled shape, backed by a
+    brand-new `NewsletterSubscriber` model (id/tenantId/email/status/
+    subscribedAt/unsubscribedAt + the standard audit block) — not
+    force-fit onto `ContactRequest` (a message-based inbox, not a
+    subscription state). Upsert-by-email at the application layer
+    (`findActiveByEmail()` before create/update) — subscribing an
+    already-subscribed email is a no-op success, re-subscribing a
+    previously-unsubscribed one flips it back — deliberately not a
+    schema-level `@@unique` (would permanently block a legitimate
+    re-subscribe after a soft-deleted unsubscribe); a real DB-level
+    partial unique index is flagged as a reasonable future hardening
+    pass, not built this phase.
+  - **`apps/api/src/storage/`** (new, `@Global()`) — `StorageService`
+    wraps `@aws-sdk/client-s3` (works against real AWS S3 or any
+    S3-compatible endpoint — Cloudflare R2/DigitalOcean Spaces/MinIO —
+    via a new optional `STORAGE_ENDPOINT`). Unlike email, throws a clear
+    503 when unconfigured — an upload has no honest "silently skip"
+    behavior.
+  - **`POST /products/:id/images`** (`modules/catalog/`, new
+    `product-image.controller.ts`/`.service.ts`/
+    `repositories/product-image.repository.ts`) — genuinely new
+    sub-resource surface (no per-image CRUD existed at all before this;
+    images were only ever nested-created inside `POST /products`, which
+    is unchanged and still URL-only). Multipart, `memoryStorage()`,
+    5MB/image-mimetype-only validation via Nest's own `ParseFilePipe`.
+    Reuses the existing `products:write` permission — no new permission
+    key.
+  - `RESEND_API_KEY`/`EMAIL_FROM_ADDRESS`/`STORAGE_*` (+new
+    `STORAGE_ENDPOINT`/`STORAGE_PUBLIC_URL_BASE`) added to
+    `env.validation.ts` as **validated-but-optional** — the app must
+    boot and serve every existing route with zero real credentials for
+    either capability; a missing var is a reduced-capability startup,
+    never a boot failure.
+  - `apps/web`: `app/api/contact/route.ts`/`app/api/newsletter/route.ts`
+    rewired from `console.info` placeholders to real server-to-server
+    calls (new `lib/server/backend-client.ts` helper, deliberately a
+    separate small helper rather than a refactor of the proven
+    `lib/auth/backend-auth-client.ts`) — no change to either form
+    component, since the request/response shapes stayed identical.
+  - **Not built, flagged rather than silently skipped:** admin list/
+    triage views for contact requests or subscribers; an unsubscribe
+    route/link; a portal product-image-upload UI (no product create/
+    edit page exists yet to attach a file picker to — the new upload
+    endpoint is real and directly testable via Swagger UI/curl in the
+    meantime); the DB-level partial-unique-index hardening for
+    `NewsletterSubscriber` noted above.
+  - `pnpm --filter @antrique/api generate:openapi` needs a re-run to
+    pick up the 3 new real routes (plus the `@ApiBody` fix below) in the
+    authoritative `apps/api/openapi.json` — not run by this session (no
+    shell access). `db:migrate:dev`/`db:migrate:deploy` **has** since been
+    run by the user (`20260728121426_add_contact_company_and_newsletter`
+    — hand-edited to strip the recurring, previously-documented
+    `users_tenant_id_email_key` false-positive before applying) — the
+    `NewsletterSubscriber` table and `ContactRequest.company` column are
+    live in the dev database, not just in `schema.prisma`.
+  - **Real-world live verification (user-driven, post-implementation):**
+    both capabilities confirmed genuinely working end to end, not just
+    typechecking clean — real Resend API key configured, a real contact-
+    form submission produced a real delivered email (Resend message id
+    captured in the server log); real Supabase Storage (S3-compatible)
+    credentials configured, a real `POST /products/:id/images` upload
+    produced a real object in the `antrique-assets` bucket, publicly
+    reachable at its stored URL (confirmed by opening it in a browser).
+    Two real, previously-invisible bugs surfaced and fixed during this
+    verification (both pre-dated Phase 7, exposed by it — Swagger UI's
+    "Try it out" was the first thing in this codebase to ever call a
+    protected route's docs from the browser):
+    - `main.ts`'s Helmet CSP (`default-src 'none'`, Milestone 13) had no
+      `connectSrc` override; Helmet merges its own defaults for
+      `script-src`/`style-src`/`img-src` (so Swagger UI's page/assets
+      loaded fine) but has **no** default for `connect-src`, which
+      silently fell back to `default-src: 'none'` — blocking every
+      fetch Swagger UI's own "Try it out" made, even same-origin. Fixed
+      by adding `connectSrc: ["'self'"]` alongside the existing
+      overrides — every real JSON API response is still exactly as
+      locked-down as before; only same-origin fetches from this app's
+      own served pages (i.e. only `/api/docs`) are now permitted.
+    - `product-image.controller.ts`'s `POST /products/:id/images` had
+      `@ApiConsumes('multipart/form-data')` but no `@ApiBody()` schema —
+      Swagger UI had no way to know a file field existed, so it rendered
+      no upload widget at all. Fixed with an explicit `@ApiBody()`
+      (`{file: {type: 'string', format: 'binary'}}`), the standard
+      NestJS/Swagger recipe for multipart file uploads.
+    - Also found, mid-verification, that this project's Supabase Storage
+      instance serves public object URLs from its dedicated
+      `storage.supabase.co` subdomain, not the bare `<project-ref>.
+      supabase.co` domain most Supabase docs/examples assume — not a
+      code bug (`StorageService.buildPublicUrl()` just concatenates
+      whatever `STORAGE_PUBLIC_URL_BASE` is configured to), but worth
+      recording since it cost real debugging time and would trip up
+      the next person configuring Supabase Storage against this same
+      code path.
+- **Business Portal Engineering Review (`apps/web`)** — modeled on the
+  Backend v1.0 Review phases and the Marketing/Auth reviews: a review-and-
+  fix pass over the Business Portal below, zero new modules/features/
+  redesigns. Full findings folded into `docs/architecture/business-
+  portal.md`. Real, genuine issues found and fixed: **`use-list-params.ts`
+  called `router.push()` for every filter/search/sort/page change** — a
+  systemic bug affecting all 7 modules' list pages, since every
+  incremental filter change (including each debounced search keystroke)
+  added its own browser-history entry, making the Back button effectively
+  step through filter history one change at a time instead of leaving the
+  list page; fixed to `router.replace()` (list state is still fully
+  shareable/bookmarkable via the URL either way — only the history-entry
+  behavior changes). **The Bespoke wizard's customer search fired one
+  `GET /customers` request per keystroke** — unlike every other module's
+  search box (which goes through `list-toolbar.tsx`'s existing 300ms
+  debounce), the wizard's own customer-search `Input` was wired directly
+  to the query with no debounce; fixed with the same debounce pattern
+  plus `enabled` gating on the debounced value's length, which also fixed
+  a real flash-of-wrong-content bug (a "No customers found" flash while
+  still typing, mid-debounce). The wizard also showed the selected
+  customer as a raw UUID (`Selected customer id: <uuid>`) instead of
+  their name — fixed by resolving it from the already-fetched search
+  results. **Four near-identical sub-nav components** (`inventory-nav`/
+  `crm-nav`/`billing-nav`/`admin-nav.tsx`) — each hand-rolled the same
+  link-strip-with-active-state logic, with inconsistent (and, for
+  `inventory-nav`, incidentally-correct-only-by-luck) active-tab matching
+  — consolidated into one shared `components/data/module-sub-nav.tsx`
+  using a "longest matching href" rule that correctly handles Admin's own
+  case (one tab, `/admin`, is a literal parent path of its siblings).
+  **Nine near-identical status/type filter `Select`s**, duplicated across
+  Catalog/Orders/Leads/Follow-ups/Invoices/Payments/Notifications/
+  Warehouses/Suppliers/Inventory-Transactions, consolidated into a new
+  `components/data/enum-filter-select.tsx` — while doing this, found a
+  real, visible UX inconsistency: Catalog/Warehouses/Suppliers/Follow-ups
+  Title-Cased their filter option labels ("Draft," "Active," "Pending")
+  while the `StatusBadge` in the very same table row renders the raw enum
+  text ("DRAFT," "ACTIVE," "PENDING") — normalized every filter to match
+  what its own badges already show, rather than picking one convention
+  arbitrarily. **Four raw hand-rolled `<table>` elements** (Catalog
+  product variants, Order line items, Invoice line items, Supplier
+  supplied-items) replaced with the existing `Table`/`TableHeader`/
+  `TableBody`/`TableRow`/`TableHead`/`TableCell` component family
+  (`components/ui/table.tsx`) already used by `DataGrid` — a real
+  "one-off table" duplication the review brief explicitly asked to check
+  for. **Mutation-safety hardening**: four `AlertDialogAction` buttons
+  (Order Cancel, Lead Convert, Lead Archive, Invoice Void) were missing
+  the `disabled={mutation.isPending}` guard every other write action in
+  the portal already had (Order Advance, Invoice Issue, Follow-up
+  Complete/Cancel/Reopen, Notification Retry) — added for consistency and
+  real double-submit protection. **Verified, not changed** (real findings
+  that turned out to be non-issues on inspection): no `console.log`/`any`
+  types/`dangerouslySetInnerHTML`/raw `fetch()` calls anywhere in the
+  portal; `CustomerNote.body` (a "sanitized HTML/markdown string" per its
+  own backend DTO comment) is deliberately rendered as plain text, not
+  parsed as HTML, since there is no dependency-free way to verify what
+  "sanitized" means without one, and plain-text is the safe default; no
+  refund UI exists anywhere (`POST /payments/:id/refund` still always
+  501s); Payments/Audit-Logs' lack of a "Sort by" control (unlike every
+  other module) was reviewed and kept as a deliberate, reasonable choice
+  for ledger-style views where newest-first is the dominant use case, not
+  treated as inconsistency to "fix" by adding UI surface. **Validation**:
+  the tool-execution outage persisted through this review too —
+  `typecheck`/`lint`/`prettier`/`build` still could not be run; Grep
+  remained available and was used throughout to sweep the whole `(portal)`
+  tree for `console.*`/`any`/`TODO`/`dangerouslySetInnerHTML`/raw
+  `fetch()`/raw `<table>` patterns, cross-checking every finding against
+  actual file contents before fixing, not from memory of having written
+  the code originally.
+- **Business Portal — all 7 Backend v1.0 modules (`apps/web`)** — the
+  authenticated business application: Catalog, Bespoke Customizer (→ order
+  creation), Orders, Inventory, CRM, Billing, Admin, built entirely against
+  the real, frozen Backend v1.0 API on top of the existing Phase 1 shell/
+  auth/query infrastructure. Full architecture, every file, and the
+  backend-contract gaps below live in `docs/architecture/business-
+  portal.md`; this entry summarizes. **Ground truth over guesswork**: the
+  generated `types/api/schema.ts` is confirmed useless for field typing
+  (every DTO is `Record<string, never>`) — every type in `types/api/
+  {catalog,bespoke,orders,inventory,crm,billing,admin,customers}.ts` was
+  hand-authored by reading the real `apps/api/src/modules/*` DTO/
+  controller/constant source directly, not inferred or guessed.
+  **Shared foundation** (`components/data/`) built once, reused by all
+  seven modules: `resource-table.tsx` (loading/error/empty states around
+  the existing `DataGrid`), `use-list-params.ts` (URL-driven page/search/
+  sort/filter state), `list-toolbar.tsx`, `list-pagination.tsx`,
+  `status-badge.tsx` (tone-mapped over the existing `Badge`),
+  `detail-page-header.tsx`; plus a hand-authored `components/ui/
+  alert-dialog.tsx` (shadcn CLI still unreachable — same pattern
+  `form.tsx` established) reused for every destructive confirmation
+  (Cancel Order, Archive Lead, Void Invoice). Every list column disables
+  `DataGrid`'s own built-in click-to-sort (`enableSorting: false`) —
+  discovered that it re-sorts only the current page client-side, which
+  would silently contradict the URL-driven server sort; an explicit "Sort
+  by" control replaces it.
+  **Real backend gaps found and deliberately NOT worked around** (would
+  have violated "do not implement functionality the backend doesn't
+  have"): (1) the Bespoke wizard's Fabric and MeasurementProfile browsing
+  are both real, fully-CRUD backend entities, but `CreateOrderItemDto`/
+  `selectedOptions` has no field for either — confirmed by reading
+  `order.service.ts`'s `computeCustomizationPricing()` directly. Fabric is
+  shown as a clearly-labeled read-only reference panel in the wizard's
+  review step (not a selectable field implying it's submitted);
+  Measurement Profiles are omitted from the order flow entirely rather
+  than faked. (2) No reverse "productVariantId/fabricId → product/fabric
+  name" lookup endpoint exists anywhere — Orders' line items, Inventory's
+  item rows, and Supplier's supplied-items table all show the raw id
+  (truncated, full id in a `title` tooltip) instead of a fabricated name.
+  (3) `LeadStatus.LOST` (CRM) and `InvoiceStatus.OVERDUE` (Billing) are
+  real enum values with no endpoint that ever sets them automatically (no
+  cron/job exists) — documented in the type files' own comments, not
+  silently treated as reachable. (4) Style-option cross-group
+  incompatibility checking was scoped out — `incompatibleStyleOptionIds`
+  only exists on the standalone `GET /style-options/:id` response, not the
+  nested view the wizard already has, and fetching it per-option would be
+  an unjustified N+1; the wizard enforces one-selection-per-group instead.
+  **Per-module notes**: Catalog — list/detail only (categories/collections
+  are read-only reference data for filters, no CRUD UI, matching the
+  brief). Bespoke — a 4-step wizard (customer search, variant+quantity+
+  warehouse, style options, monogram+review) submitting straight to
+  `POST /orders`, reached from a Catalog product's detail page (no
+  standalone nav entry — there's no submission entity to list). Orders —
+  the one legal forward status transition (`ORDER_FORWARD_TRANSITIONS`)
+  as a single "Advance to X" action, Cancel as a separate
+  `AlertDialog`-confirmed action only shown while `ORDER_CANCELLABLE_
+  STATUSES` includes the current status (a stricter permission
+  server-side; a 403 here is expected for non-Admin roles and handled by
+  the existing `getErrorCopy()`, not hidden). Inventory — stock level
+  (`in stock`/`low stock`/`out of stock`) is entirely client-derived
+  (`features/inventory/stock-level.ts`) since `InventoryItem` has no
+  status field at all; Warehouses/Suppliers get list+detail, Items/
+  Transactions get list only (matches the brief's own bullets). CRM —
+  Lead Archive/Convert and Follow-up Complete/Cancel/Reopen all wired;
+  Customer has no standalone list page (reached via a Lead's
+  `convertedCustomerId` or an Order's `customerId`) but a real detail page
+  with Notes (the one genuinely-CRUD CRM entity beyond status actions) and
+  a read-only Activity timeline. Billing — Invoice Issue/Void (void only
+  from `INVOICE_VOIDABLE_STATUSES`), Payments list is read-only (Refund
+  always returns 501 — confirmed, not built). Admin — dashboard renders
+  the 5 modules' KPIs generically from the response's own loosely-typed
+  `Record<string, string | number>` metrics bag (deliberately not
+  hardcoding field names the DTO itself doesn't guarantee), Notification
+  retry (FAILED only), read-only Audit Logs, Report generate + JSON
+  snapshot detail. **Navigation**: replaced the Phase 1 mocked
+  `PORTAL_NAV_ITEMS` (`Projects`/`Documents`/`Support`/`Settings` had no
+  backend module and no real page) with the seven real modules; also
+  found and fixed a real, silent bug — `ROUTES.portal.dashboard` (the
+  post-login redirect default) pointed at a route with no `page.tsx`,
+  a 404 waiting for the first real login, invisible until this phase gave
+  it something to land on. Built a real landing page there instead of
+  just repointing the redirect. **Validation**: the tool-execution outage
+  (Bash/PowerShell) persisted for this entire phase, same as every phase
+  since Application Runtime Architecture — `typecheck`/`lint`/`build`
+  could not be run. Grep intermittently recovered partway through (after
+  being broken all session) and was used to confirm no dangling references
+  to the removed mocked routes/nav items; Glob remained broken throughout.
+  Every type/route/permission fact was verified by reading the real
+  `apps/api` source directly (dozens of controller/DTO/constant files),
+  not from the earlier phase's own research summary alone, after that
+  summary was found to be incomplete on the load-bearing `selectedOptions`
+  shape.
+- **Authentication Engineering Review (`apps/web`)** — modeled on the
+  Backend v1.0 Review phases and the Marketing Website review; zero new
+  auth features. Full findings in `docs/architecture/application-
+  runtime.md`'s new "Authentication Engineering Review" subsection under
+  §5. Real issues found and fixed: `request.ts`'s 401-retry refresh and
+  `AuthProvider`'s proactive pre-expiry-timer refresh were two
+  independent, undeduplicated calls to `authService.refresh()` — a race
+  that could fire two concurrent `POST /api/auth/refresh` requests if
+  they landed close together (harmless given the backend's stateless
+  refresh, but avoidable); fixed by moving the in-flight-promise dedup
+  into `authService.refresh()` itself, the one real shared network
+  boundary, and removing `request.ts`'s now-redundant copy of the same
+  pattern. **A real, exploitable open-redirect bypass**: the login page's
+  `?redirect=` validation (`safeRedirectPath()`) only checked
+  `startsWith('//')`, missing that the WHATWG URL spec normalizes a
+  leading backslash the same as a forward slash for special schemes (a
+  legacy IE-compat rule) — `/\evil.com` bypassed the check exactly like
+  `//evil.com` would have. Fixed by resolving the path against a fixed
+  base with the real `URL` parser and comparing origins, which inherits
+  the browser's own normalization instead of re-deriving it by hand — this
+  is a well-known open-redirect bypass class, not a hypothetical.
+  **Security hardening**: none of the four auth BFF routes
+  (login/session/refresh/logout) set `Cache-Control: no-store`, even
+  though three of them return a real access token in the body — added a
+  small `noStoreJson()` helper (`lib/auth/no-store-response.ts`) applied
+  to all four, defense in depth against any caching layer between the
+  browser and the app. Verified, not changed (already correct): no
+  localStorage/sessionStorage token usage anywhere (one grep hit was a
+  comment documenting the absence, not a real usage); no sensitive data
+  logged anywhere in the BFF routes; relaying a `BackendAuthError`'s body
+  verbatim to the browser is safe because the real backend's own
+  exception filter is independently verified (Security Hardening
+  milestone) to never leak internals; `SameSite=lax` unchanged (CSRF
+  assumption intact); `PasswordInput`/`Input`'s non-`forwardRef` pattern
+  correctly forwards RHF's field ref under this repo's actual React 19
+  semantics (checked directly, not assumed from older-React convention).
+  Two items flagged as low-severity, deliberately not changed: the login
+  form has no double-submit guard beyond its disabled button (identical,
+  pre-existing pattern to Contact/Quote — fixing only login would be
+  inconsistent, fixing all three is out of scope for an auth-only
+  review); `error-copy.ts`'s 401 case is largely theoretical until a real
+  business page fetches data during render. **Validation**: the
+  tool-execution outage never recovered this session either —
+  `typecheck`/`lint`/`prettier`/`build` still could not be run. Every fix
+  was verified by direct code reading, including tracing the exact WHATWG
+  URL normalization behavior the redirect fix relies on — but this is
+  still not the real toolchain.
+- **Authentication UI & User Flows (`apps/web`)** — the last real gap in
+  the auth infrastructure the Application Runtime Architecture phase
+  built: `ROUTES.auth.login` pointed at a 404 (no `app/(auth)/login/`
+  page existed). Full writeup in `docs/architecture/application-
+  runtime.md` §5. Login page: email + password, RHF + Zod
+  (`lib/validation/auth.ts`), reuses `components/ui/password-input.tsx`'s
+  already-built accessible show/hide toggle (nothing to build there),
+  submits straight to the existing `authService.login()` seam — no new
+  API contract. Deliberately no signup/password-reset (the real backend
+  has no such endpoints — `apps/api/src/modules/auth/README.md`'s own
+  scope note) and no "remember me" (the backend issues the same token
+  pair unconditionally, so a checkbox would control nothing real) — both
+  documented as confirmed backend-limitation calls, not oversights.
+  **Session UX gap closed**: `middleware.ts`'s session check went from a
+  boolean to a three-state `'valid' | 'expired' | 'missing'`, so a portal
+  redirect to `/login` only carries `reason=expired` when a session
+  genuinely lapsed, never on a plain first visit — `AuthProvider`'s own
+  mid-session redirect got the same treatment. The login page's
+  `?redirect=` is validated (`/`-prefixed, not `//`) before use, closing
+  an open-redirect risk a naive read of that param would have had.
+  **Error triage**: `authService`'s `parseOrThrow` previously discarded
+  the HTTP status of a failed call — added `AuthRequestError` (carries
+  `status`) so the login form can show "incorrect email or password"
+  for a 401 specifically rather than one generic message for every
+  failure kind. New `lib/errors/error-copy.ts` gives `(portal)`/`(auth)`
+  `error.tsx` distinct copy per error kind/status (401/403/404/5xx/
+  network) instead of one undifferentiated message — 403 has no real
+  trigger yet (no permissions exist), this is groundwork a future
+  permission-gated module can rely on without this layer changing again.
+  **User menu**: now shows a `Skeleton` avatar during the brief
+  post-hard-refresh window before session bootstrap resolves, instead of
+  flashing "Unknown user". **Cleanup**: removed `signup`/`forgotPassword`
+  from `config/routes.ts`'s `ROUTES.auth` — unbacked by any real backend
+  capability or planned page, violating that file's own "add an entry
+  alongside creating each real page" convention (confirmed unreferenced
+  anywhere before removing). **Validation**: the tool-execution outage
+  first hit during the Application Runtime Architecture phase, and never
+  recovered through the Marketing Website build or its review, also never
+  recovered this session — `typecheck`/`lint`/`prettier`/`build` still
+  could not be run. Every change was verified by direct code reading
+  (including re-confirming, via the actual React 19 ref-forwarding
+  semantics installed in this repo, that `PasswordInput`/`Input`'s
+  non-`forwardRef` pattern correctly forwards RHF's field ref rather than
+  silently dropping it — a real question raised and resolved during
+  review, not assumed either way) — but this is still not the real
+  toolchain, and remains the top item before this can be called fully
+  validated.
+- **Marketing Website Engineering Review (`apps/web`)** — modeled on the
+  Backend v1.0 Review phases: a review-and-fix pass over the Marketing
+  Website below, zero new pages/features/scope. Full findings in
+  `docs/architecture/marketing-site.md` §10. Real, genuine issues found and
+  fixed (not subjective redesigns): `/work` was trimmed of duplicated
+  content (it repeated the full service-cluster grid and process timeline
+  already on Home/Services/About-Process); every page's Open Graph/Twitter
+  card image was silently broken (`buildPageMetadata` defaulted to a
+  `/og/default.png` path confirmed, by direct filesystem check, to not
+  exist — fixed to omit the field rather than assert a 404); JSON-LD had
+  three more of the same problem (`organizationSchema`'s `logo`/`sameAs`,
+  `websiteSchema`'s sitelinks-search `potentialAction` targeting a
+  nonexistent `/search` route, `blogPostingSchema`'s `publisher.logo` — all
+  fixed to omit rather than assert); the app had no favicon at all (added
+  `app/icon.svg`, a simple monogram — the one asset creatable without an
+  image tool, since SVG is authorable text); `SectionHeading`'s eyebrow
+  label used `text-accent`, a pairing `design-system.md`'s own contrast
+  table verifies only at the 3:1 non-text/focus-indicator threshold
+  (3.30:1 in light mode), not the 4.5:1 normal-text threshold that label
+  actually needs — a real WCAG AA failure, fixed to `text-muted-foreground`;
+  the quote wizard's progress bar had no accessible name (added
+  `aria-label`); the 3D hero's WebGL render loop kept running after being
+  scrolled past (fixed with the same IntersectionObserver lazy-mount
+  pattern `components/media/video.tsx` already established); `/resources`'s
+  metadata description promised "guides" that don't exist on the page;
+  Home's hero CTA `Stagger` had an inconsistent timing override removed.
+  Verified-clean, not touched: client/server boundaries, dependency
+  weight (no GSAP/Carousel pulled into the marketing bundle), zero
+  circular dependencies, no dead links, no `MagneticButton` misuse, no
+  fabricated content anywhere (re-verified via full-tree search). One
+  finding flagged but NOT changed pending real verification: `SITE.twitter`
+  (`@antrique`) is unconfirmed as a real handle (unlike the other broken
+  references, this isn't something the codebase can prove false); a
+  pre-existing `FormMessage` `text-destructive`-on-background pairing
+  wasn't in the verified contrast table either, but changing a
+  cross-app-shared component on unverified suspicion was judged riskier
+  than flagging it. **Validation**: `typecheck`/`lint`/`prettier`/`build`/
+  Lighthouse could not be run — the tool-execution outage first hit during
+  the Application Runtime Architecture phase never recovered through this
+  entire review. Every fix was verified by direct code/filesystem reading,
+  not the toolchain — flagged as the top item before Phase 3.
+- **Marketing Website (`apps/web`)** — this session's real Sprint 2 scope
+  (see the note above re: the never-recovered `sprint-02.md` task list).
+  15 real pages built on top of the Application Runtime Architecture shell
+  below: Home, Services, Industries, Work, About(+Process), Pricing,
+  Resources, Blog (listing + `[slug]` detail), FAQ, Contact, Quote,
+  Privacy, Terms. Full reasoning in `docs/architecture/marketing-site.md`;
+  key points: **Content honesty** — Antrique is pre-launch
+  (`docs/product/01-discovery.md`'s real Vision content, despite the
+  filename mismatch bug — see blockers.md), so Portfolio/Testimonials/
+  Stats content uses honest early-stage framing (confirmed with the user)
+  instead of fabricated client names/quotes/logos: `/work` frames around
+  capabilities+process with a real "case studies coming soon" empty state,
+  Home's stats section cites real platform facts (test suite count,
+  coverage, WCAG baseline) instead of invented traction numbers, Pricing
+  shows scope tiers with zero fabricated figures, and `/contact`
+  deliberately skips `localBusinessSchema` (no real address/phone to put
+  in it truthfully — a fabricated one would misrepresent a real business
+  location). **Lead capture**: Contact/Quote forms submit to new,
+  honestly-labeled placeholder Route Handlers (`app/api/{contact,quote}/
+  route.ts`) that validate (Zod, schemas shared with the client forms via
+  new `lib/validation/`) and log server-side — no real backend CRM
+  endpoint exists yet (Sprint 3 scope), matching this codebase's own
+  "capability exists, first consumer later" pattern rather than a fake
+  integration; submissions are NOT actually persisted anywhere yet,
+  flagged as an explicit pre-launch gap. **Quote wizard** implements the
+  real spec found (despite the filename) in
+  `docs/product/05-admin-dashboard.md`: one question per screen, visible
+  progress, per-step validation that never drops already-entered data,
+  contact fields captured last, focus moved to each new step's first field
+  programmatically (the browser has no default behavior for that). **SEO**:
+  new `lib/seo/metadata.ts` finally wires the `RouteMeta` contract
+  (`seo.config.ts`, spec-level since the Foundation phase, never
+  implemented until now) to real `generateMetadata` calls on every page;
+  root `config/metadata.ts` now derives its title template from the same
+  `SITE` constant instead of a second, differently-formatted copy that
+  existed alongside it. JSON-LD via the existing `schema.ts` builders
+  (unchanged) rendered through a new 6-line `<JsonLd>` component.
+  **Design-system reuse**: zero new base UI primitives except `<JsonLd>` —
+  the "mega menu" (`components/marketing/site-nav.tsx`) is built on the
+  already-existing `DropdownMenu` primitive rather than a new
+  `NavigationMenu`, and `MagneticButton` was deliberately NOT used
+  anywhere (every CTA is a real `<Link>`-based `Button`; wrapping that in
+  `MagneticButton`, which renders a native `<button>`, would nest an `<a>`
+  inside a `<button>` — invalid HTML) — `Hover` + `Button`'s own built-in
+  states cover the same interaction instead. **3D**: `hero-scene.tsx`, the
+  first real consumer of the Design System phase's `scene-canvas.tsx`
+  (built, zero prior consumers) — a purely decorative rotating wireframe
+  icosahedron (primitive geometry only, no GLTF models exist), lazy-loaded
+  (`next/dynamic({ssr:false})`, required for WebGL), skipped under reduced
+  motion and below `lg`, never load-bearing. **Content**: new `src/content/`
+  — services (15/4 clusters) and industries (10) derived reasonably from
+  the real cluster names and persona list in the product docs (neither is
+  literally enumerated anywhere), since no product doc lists them; flagged
+  as needing a real content pass if the actual business list differs.
+  Validation: could only get partway — `docs/implementation/progress.md`'s
+  own prior Application Runtime Architecture entry already flagged an
+  unresolved production-build failure traced into Next's own precompiled
+  internals; that investigation was cut short by a tool-execution outage
+  (Bash/PowerShell both stopped responding) that persisted for this entire
+  phase too, so `typecheck`/`lint`/`build` could not be re-run at all this
+  session — every file was written carefully against the actual installed
+  package APIs (read directly from `node_modules` and existing working
+  call sites) rather than assumed, but this is explicitly NOT verified via
+  the toolchain and is flagged as the first thing to do once shell access
+  returns.
+- **Application Runtime Architecture (`apps/web`)** — NOT a Sprint 2/4 task;
+  the direct follow-on to the Design System phase below, explicitly BEFORE
+  any business modules/marketing content/login-signup forms. Builds the
+  runtime shell every future page/feature sits inside: real layouts for all
+  three route groups, the portal application shell, a navigation system, a
+  full authentication architecture, a completed API runtime, TanStack Query
+  conventions, cross-cutting global state, and upgraded error/loading
+  boundaries. Full reasoning, every file, and the risks below all live in
+  `docs/architecture/application-runtime.md` — this entry summarizes.
+  Auth: the real backend (`apps/api`) is strictly Bearer-token-authenticated
+  (`credentials: false` in its CORS config, `JwtAuthGuard` reads only
+  `Authorization: Bearer`, never a cookie) — verified against source, not
+  assumed — so an httpOnly session cookie is a concept this Next.js server
+  owns entirely. Used the two env vars the Foundation phase had already
+  reserved for exactly this (`API_INTERNAL_URL`, `SESSION_COOKIE_NAME`)
+  rather than inventing a different strategy: new `app/api/auth/{login,
+  session,refresh,logout}/route.ts` proxy to the real backend
+  server-to-server (no CORS involved), the httpOnly cookie holds both JWTs,
+  and the access token lives in memory only client-side
+  (`store/auth-store.ts`), recovered via `GET /api/auth/session` on mount
+  (`providers/auth-provider.tsx`). `services/api/request.ts` gained a
+  401-refresh-and-retry-once path (de-duplicated via a shared in-flight
+  promise) and a GET-only network/5xx backoff retry (300ms/900ms, 2
+  attempts); `services/api/interceptors.ts` got its first real interceptor
+  (Bearer + `X-Tenant-ID` header attachment, a no-op server-side to avoid
+  leaking one browser tab's in-memory token into a shared Node module
+  during SSR). `middleware.ts` (new, root) does a presence/expiry-only
+  redirect for portal/auth paths — explicitly documented as a UX shortcut,
+  not a security boundary; real enforcement stays exclusively the
+  backend's own `JwtAuthGuard`. Found and worked within two real,
+  structural backend constraints rather than routing around them: every
+  `apps/api` request (including login) must resolve a tenant or gets a
+  400, and there is still no `/me` endpoint (Backend v1.0 Review Phase 4's
+  own finding) — so `NEXT_PUBLIC_TENANT_ID` is one configured tenant per
+  deployment (real per-visitor resolution is an open product decision, see
+  `blockers.md`), and the client can only ever know a session `email`, no
+  name/role/permissions. Shell: `components/portal/portal-shell.tsx`
+  composes the existing `Sidebar`/`Navbar` shells with new
+  `portal-header.tsx` (breadcrumbs, sidebar toggle, a command-palette
+  trigger styled as a search box rather than a real non-functional input,
+  notification bell, user menu), `command-palette.tsx` (added shadcn's
+  `command.tsx` via CLI — `cmdk` was already installed — lazy-loaded via
+  `next/dynamic({ssr:false})`), `notification-center.tsx` (mocked),
+  `user-menu.tsx` (the one real, fully-wired auth action — logout).
+  `components/navigation/` is the new reusable nav system (`NavLink` is the
+  one place active-route detection lives; `DesktopNav`/`MobileNav` split
+  purely via Tailwind breakpoints, no JS media-query hook). State: three
+  new cross-cutting Zustand stores (`auth-store`, `ui-store`,
+  `notification-store`) — found a real, narrow type gap in the existing
+  shared `store/create-store.ts` factory (its generic doesn't compose with
+  the `persist` middleware `ui-store.ts` needs for a remembered sidebar
+  state) and worked around it locally in `ui-store.ts` rather than
+  generalizing the shared factory's generic signature, to keep this
+  phase's diff to Foundation-phase files at zero; documented as a flagged,
+  not-fixed gap. Error/loading: root + all three route-group `error.tsx`/
+  `loading.tsx` upgraded from the Foundation phase's deliberate plain-HTML
+  placeholders to the now-available `ErrorState`/`Skeleton`/`Spinner`
+  components — `global-error.tsx` deliberately excluded (it must survive a
+  root-layout crash, so it stays dependency-minimal on purpose). Query:
+  `config/query.ts` centralizes `QueryClient` defaults (queries retry
+  network/5xx twice, skip 4xx; mutations never auto-retry; a
+  `MutationCache` toast safety net) and `lib/query/query-keys.ts` adds one
+  generic key factory — no business queries yet, per this phase's own
+  scope. Accessibility: skip-to-content link + `id="main-content"`
+  landmarks in every layout; verified (not rebuilt) that `Drawer`/`Dialog`/
+  `DropdownMenu`/`Popover` already provide focus trap, Esc-to-close, and
+  return-focus-to-trigger. Validation: `pnpm --filter @antrique/web
+  typecheck`/`lint` both clean (fixed several real issues along the way —
+  a JSDoc comment whose own `*/`-containing example path prematurely
+  closed the comment block and cascaded into five syntax errors,
+  `noUncheckedIndexedAccess` hits in `jwt.ts`/`request.ts`, a devtools
+  3-arg `set()` signature mismatch against `createStore()`'s actual
+  declared type across all three new stores, a deprecated `z.string()
+  .email()` call). `pnpm --filter @antrique/web build`: compiles and
+  typechecks clean, but production build's "Collecting page data" step hit
+  an environment-level failure (`TypeError: d.createContext is not a
+  function`) traced into Next.js's own precompiled internals
+  (`next/dist/compiled/next-server/app-page.runtime.prod.js`, required via
+  a deeply-nested `.pnpm` store path) — not reproducible via any change to
+  this phase's own source, and the investigation was cut short by an
+  unrelated tool-execution outage before the root cause (suspected Windows
+  path-length limits interacting with this machine's deeply-nested OneDrive
+  project path + pnpm's long dependency-key folder names, the same
+  category as the already-documented Windows EPERM/symlink limitation from
+  prior phases) could be fully confirmed. **Not silently claimed as
+  passing** — flagged here as an open item for the next session with shell
+  access to re-verify, ideally from a shorter filesystem path or with
+  Windows long-path support enabled.
+- **Design System & Component Library (`apps/web`)** — NOT a Sprint 2/4
+  task; the direct follow-on to the Frontend Engineering Foundation phase
+  below, explicitly BEFORE any real pages/business modules/auth UI.
+  Tokens: no brand guidance existed anywhere in the repo (checked every
+  `docs/product/*` file) — resolved a "warm antique" direction (charcoal/
+  ink primary, brass/amber accent) with the user rather than inventing one
+  silently, then contrast-verified every real text/background pairing
+  with a throwaway Node OKLCH→WCAG-luminance script (no dependency added)
+  instead of eyeballing hex values — full verified ratio table in
+  `docs/architecture/design-system.md` §1. Found and fixed two token
+  values that initially failed 4.5:1 (success/destructive foregrounds)
+  before finalizing. Discovered, by checking the actual compiled CSS
+  output rather than assuming: Tailwind v4's `--shadow-*`/`--blur-*`
+  theme-namespace keys DO generate real utility classes when placed in
+  `@theme`, but `--duration-*`/`--ease-*` do NOT — removed a dead mapping
+  that silently did nothing and switched those call sites to Tailwind's
+  arbitrary-value syntax instead. Component library: used the shadcn CLI
+  for every primitive with a registry entry (24 components — button
+  through carousel, plus label) rather than hand-authoring anything the
+  CLI already provides accessibly; found one real CLI/registry gap (`add
+  form` resolves with zero files for this project's style/CLI-version
+  combination, confirmed via `shadcn view form` that the registry entry
+  exists but is empty — `label`, installed the identical way immediately
+  around it, worked fine) and hand-authored the standard shadcn RHF+Zod
+  Form set to match, rather than leaving forms unsupported. ~12 more
+  hand-built components beyond shadcn's registry (multi-select, spinner,
+  empty/error state, stats card, timeline, a `@tanstack/react-table`-
+  backed data grid, icon wrapper, navbar/sidebar shells). Wired the two
+  provider requirements the shadcn CLI itself flagged (`TooltipProvider`,
+  sonner's `<Toaster />`) into the already-existing `app-providers.tsx`
+  from the prior phase, rather than leaving Tooltip/Toast non-functional.
+  Animation: installed GSAP+`@gsap/react`, `motion`, and Lenis exactly as
+  named in the brief, but architected so none of them cost anything until
+  a future page actually imports them — Lenis's own provider is built,
+  exported, and deliberately left unmounted (mounting it globally would
+  impose smooth-scroll behavior + bundle cost on every route before any
+  page opts in, against `docs/architecture/optimization.md`'s "marketing
+  ships minimal JS" budget); every one of the 11 motion primitives checks
+  a shared `useReducedMotion()` hook and fully skips its animation (not
+  just shortens it) per CONTRIBUTING.md's explicit "Respect
+  reduced-motion" rule. 3D: R3F/Drei/Three wrappers only, zero scenes: hit
+  and fixed a real composition mistake before it shipped (Drei's `Loader`
+  is an HTML overlay and cannot render as an in-`Canvas` Suspense
+  fallback — three.js scene children only — caught during implementation,
+  not left in). Also hit and fixed a genuine, project-wide TypeScript
+  regression the moment `@react-three/fiber` was installed: its global
+  `JSX.IntrinsicElements` augmentation breaks any unconstrained `as?:
+  React.ElementType` polymorphic prop everywhere in the program, not just
+  in files touching R3F (confirmed by watching `Container`/`TextReveal`'s
+  typecheck errors appear at that exact install step) — fixed by using
+  closed tag unions instead of the open generic in both places, a change
+  arguably correct on its own terms regardless of R3F. Accessibility:
+  audited every hand-built component against focus-ring/keyboard/
+  semantic-HTML/reduced-motion/contrast rather than assuming shadcn's
+  Radix base covers everything — found and fixed two real ARIA gaps
+  `@tanstack/react-table`'s headless API doesn't set for you (`DataGrid`
+  missing `aria-sort`, `MultiSelect`'s options missing `role="option"`/
+  `aria-selected`). Full validation: `pnpm typecheck`/`lint` clean
+  throughout (multiple real errors found and fixed along the way, not
+  just at the end — motion's `MotionStyle`/`Easing`/prop-collision errors,
+  the R3F `ElementType` regression above, a `noUncheckedIndexedAccess` hit
+  in `Video`'s IntersectionObserver callback); `pnpm build` compiles/
+  typechecks/lints/prerenders all 6 routes (same pre-existing Windows
+  `EPERM` standalone-symlink limitation as the prior phase, unrelated to
+  this work); spot-checked the actual compiled CSS for `shadow-md`,
+  `backdrop-blur-glass`, `text-success`, and `font-heading` to confirm the
+  token pipeline produces real utilities, not just plausible-looking
+  config.
+
+- **Frontend Engineering Foundation (`apps/web`)** — NOT a Sprint 2/4 task
+  (those still need authoring, see blockers.md); a cross-cutting tooling/
+  structure phase, same category as the backend's own Milestone/Review-Phase
+  work, run explicitly BEFORE any marketing/portal pages, components, design
+  system, or auth UI. Found a prior, uncommitted session had already done
+  part of the dependency work (React 19 upgrade, Tailwind v3→v4 migration
+  to `@tailwindcss/postcss` + CSS-first `@theme`, `shadcn init` producing
+  `components.json` + `cn()`, TanStack Query/Zustand/RHF+Zod/radix-ui/
+  lucide/cva/next-themes added as deps) — verified it typechecked/linted
+  clean before building on top of it, nothing undone. Resolved one real
+  scope tension up front with the user: the tech stack names shadcn/ui+Radix
+  as required tooling, but this phase's own restrictions forbid building
+  "Components"/"Design System" — resolved as tooling-only (kept
+  `components.json`, zero `components/ui/*` files created; error/loading/
+  not-found pages use plain semantic HTML, no shadcn primitives).
+  Structure: added `features/`, `store/`, `utils/`, `types/` under
+  `apps/web/src/` (kept `lib/utils.ts`'s `cn()` in place rather than moving
+  it to the new `utils/`, since shadcn's CLI hardcodes that import path via
+  `components.json`'s `aliases.utils` — every future `shadcn add` would
+  break otherwise). Tooling: `.lintstagedrc.json` previously only ran
+  `prettier --write` on commit, never linted — added `eslint --fix` ahead
+  of it for both `apps/web` and `apps/api` patterns, verified it resolves
+  each workspace's own nested `.eslintrc.cjs` correctly when invoked from
+  the repo root. Environment: `src/config/env.ts`, two Zod schemas
+  (`clientEnv`/`serverEnv`) validated eagerly at import time — importing
+  server-only vars from a client component now fails loudly instead of
+  silently resolving `undefined`. OpenAPI type generation: real, not
+  stubbed — ran `pnpm --filter @antrique/api generate:openapi` against the
+  actual frozen backend (a real Postgres was already reachable locally) to
+  produce `apps/api/openapi.json` (75 paths, 82 schemas), then wired +ran
+  `openapi-typescript` into a new `apps/web` `generate:api-types` script
+  (root convenience script chains both) producing a real, committed
+  `src/types/api/schema.ts` (~7,000 lines) — documented the known,
+  inherited backend limitation that response DTOs still serialize with
+  empty JSON-schema detail (Phase 4 finding above), so response typing
+  uses an explicit type argument rather than schema inference; request
+  bodies DO get real generated types. API foundation:
+  `services/api/{config,http-error,request,interceptors,client}.ts` — a
+  generic typed fetch client, an `ApiError` class matching the backend's
+  real `{ statusCode, message, error }` shape (not the RFC 9457 shape
+  `packages/api-contract`'s stale draft assumed), and an empty request/
+  response interceptor pipeline as the seam a future auth phase attaches a
+  token/refresh interceptor to. Providers: `QueryProvider` (one
+  `QueryClient` per component instance per TanStack's own SSR guidance),
+  `ThemeProvider` (next-themes), `GlobalErrorBoundary` (class component —
+  React has no hook equivalent), composed in `AppProviders` and wired into
+  `app/layout.tsx` around `{children}` (also added `suppressHydrationWarning`
+  to `<html>`, required once next-themes is present). State: `store/
+  create-store.ts` wraps Zustand's `create` with dev-only DevTools wiring;
+  `store/README.md` documents the Zustand-vs-TanStack-Query decision rule.
+  Routing: added the `(auth)` route group (previously only `(marketing)`/
+  `(portal)` existed) and documented `app/api/`'s purpose (future Next.js
+  Route Handlers / BFF layer, distinct from the real backend) — both
+  README-only, zero pages, per restrictions. Assets: added `public/{videos,
+  models,animations}/`. Fonts: verified already correctly done by the prior
+  session (Geist via `next/font/google`, CSS variable, `display: 'swap'`).
+  Utilities: `utils/{date,currency,number,url,storage}.ts` — generic only,
+  defaulted to `en-IN`/`INR` matching the backend's own seeded GST tax
+  rates. Configuration: `config/{app,api,routes,feature-flags,metadata}.ts`.
+  Error/loading: `app/{error,global-error,not-found,loading}.tsx` (plain
+  HTML per the resolved scope), `types/errors.ts` (`NormalizedError`
+  discriminated union) + `lib/errors/normalize-error.ts`; documented the
+  future skeleton convention (colocated `*.skeleton.tsx`, not one generic
+  primitive) in docs rather than building it. Documentation: new
+  `docs/architecture/frontend.md`, updated `apps/web/README.md`'s structure
+  section to match reality. Validation, all run for real: `pnpm install`
+  clean; `pnpm --filter @antrique/web typecheck`/`lint` clean throughout
+  (fixed one real lint error along the way — an unescaped apostrophe in
+  `not-found.tsx`, `react/no-unescaped-entities`); `pnpm --filter @antrique/web
+  build` compiles/typechecks/lints/prerenders all 6 routes successfully —
+  the standalone-output trace-copy step fails on this Windows dev machine
+  with `EPERM` on `symlink` (confirmed by temporarily disabling `output:
+  standalone` and rebuilding clean; this is a Windows-needs-Developer-Mode
+  symlink limitation, not a code defect — the Docker/Linux target this
+  setting exists for is unaffected); root `pnpm format:check` is clean for
+  every file this phase touched (2 pre-existing, untouched `apps/api`
+  files — `benchmarks/run-benchmarks.js`, `scripts/check-audit-allowlist.js`
+  — already failed formatting before this session and are out of scope,
+  confirmed via `git status` showing zero changes to either). Dependency
+  audit: no missing production deps (everything the tech stack list
+  requires was already installed); no genuinely dead deps either — several
+  show zero source imports (`class-variance-authority`, `lucide-react`,
+  `radix-ui`, `react-hook-form`, `@hookform/resolvers`) but are legitimately
+  pre-installed ahead of the Design System/Forms phases per the mandated
+  stack (this codebase's own recurring "capability exists, first real
+  consumer comes later" pattern), `shadcn` is a CLI tool with no source
+  import expected, `tw-animate-css` is consumed via `globals.css`'s
+  `@import`, not JS. `@antrique/shared` stays an unconsumed placeholder
+  (`export {}`) — pre-existing, not this phase's to populate.
 - **Backend v1.0 Review — Phase 5 (Testing & Documentation Review)** — NOT
   a milestone; the fifth of five planned review phases, auditing test
   coverage and every documentation artifact across the now API-frozen,
@@ -2950,32 +4266,97 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. Backend v1.0 Review Phase 5 (Testing & Documentation Review, this
-   entry) is complete — awaiting review and approval before Phase 6, per
-   its own brief's closing instruction. Nothing else is blocked on it.
-2. Candidate follow-up work surfaced by Phases 3–4 but explicitly deferred
-   (each is a new endpoint/DTO change, out of scope for a review phase —
-   needs its own scoped task): (a) a `/me`/profile/permissions endpoint —
-   currently no API response anywhere returns the logged-in user's id/
-   name/role/permissions, a real gap for any frontend login flow; (b) a
-   bulk `productVariantId[]` filter on `GET /inventory` — Catalog list
-   responses carry no stock field, so a Product Listing screen showing
-   live stock needs one inventory call per variant today; (c) converting
-   response DTOs from constructor-parameter-properties to field
-   declarations so `@nestjs/swagger` can generate real field-level schema
-   detail (currently every response schema is a named-but-empty object —
-   see decisions.md's 2026-07-23 entry for why this wasn't done inline).
-3. `apps/web` (marketing site / portal) work has not started — the
-   original Sprint 2/4 task lists still need authoring once the
-   docs/product/ content-recovery blocker (below) is resolved.
+1. **Nothing from this session's work is committed yet** — all of Phase 8
+   (Steps 1–8, this file's newest log entries), the Project/Task/Milestone
+   module before it, plus everything from every Phase 7 entry before that
+   (CRM Client/Quotation, Contact/Newsletter, product images, and the
+   entire `apps/web` build) sits uncommitted in the working tree since the
+   `v1.0.0` tag (`27ae571`). That's several sprints of work with zero
+   checkpoint — committing (in logical chunks, not one giant commit) is
+   the single highest-value next action, independent of which feature
+   work happens next.
+2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
+   see this file's own newest log entry. Continue with **Step 2
+   (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models
+   referencing the new `Vendor`, same `apps/api/src/modules/finance/`
+   module, same `apps/web` pattern (`features/finance/`, list/create/
+   detail pages) — see the approved plan's Module 1 roadmap for the full
+   Steps 2-7 sequence and why this dependency order (Vendor → Purchase
+   Orders → Expenses first; Invoice PDF+email / Refunds / Tax Config /
+   Dashboards are independent and can interleave). Phase 8's `apps/web`
+   UI (Steps 3–8 have zero frontend) remains open but deprioritized
+   behind Phase 9 per the user's own call.
+3. Separately, Phase 7's own remaining steps are still open, in the
+   priority order its workflow matrix recommends
+   (`docs/implementation/phase-7-workflow-matrix.md`'s "What this means"
+   section): Step 8 (wire the already-built `DocumentPdfService`/
+   `EmailService` into Billing) or Steps 10–13 (Notifications/Audit/
+   Reporting are schema-complete but functionally inert — audit logging
+   is only ever called by itself). Kanban drag-and-drop / calendar view /
+   task dependencies / project budget remain smaller follow-ups to the
+   Project/Task/Milestone module specifically.
+4. Backfill a real Backend v1.0 Review Phase 6 entry in this log — the
+   `v1.0.0` tag/release commit exist (verified via `git tag`/`git log`) and
+   the user's own account says six review phases ran, but this file only
+   narrates Phases 1–5. A backend-focused session should reconstruct Phase
+   6's actual content from source/git history rather than this gap
+   persisting. Candidate follow-up work already surfaced but deferred
+   (still open, unrelated to Phase 6 itself): (a) a `/me`/profile/
+   permissions endpoint — no API response anywhere returns the logged-in
+   user's id/name/role/permissions, a real gap for any frontend login flow
+   (also the reason no project/task assignee picker exists in the new
+   `apps/web` UI — there's no "list users" endpoint/hook to build one
+   against yet); (b) converting response DTOs from constructor-parameter-
+   properties to field declarations for real field-level Swagger schema
+   detail (see decisions.md's 2026-07-23 entry).
 
 ## Notes for next session
-- Confirm the open design decisions before writing the schema (see blockers.md).
-- Sprint 2's task list still needs to be authored from docs/product/ — see blockers.md.
-- docs/product/*.md has the same swapped-content bug docs/implementation/ had
-  — see blockers.md (opened 2026-07-16).
-- The `apps/api` backend itself needs no further "next session" setup —
-  it's complete, tested (162 suites/931 tests), documented, and API-frozen
-  as of Phase 3. Anyone picking this up should start by reading this
-  file's "Completed work log" (newest first) and the Phase 1–5 reports
-  referenced there, not by re-deriving status from the Sprint table above.
+- Verify `git status` before assuming anything above is safely persisted —
+  see item 1 above.
+- The `apps/api` backend needs no further engineering "next session" setup
+  for what's already built — every module through Phase 8 Step 7 is
+  tested (181 suites/1039 tests) and verified end-to-end against a live
+  server, including real Anthropic API round-trips, the first
+  genuinely-succeeding Phase 8 write path (`POST /task-generator/approve`,
+  201, real `Task` rows), and Step 7's full persisted-resource CRUD
+  surface (verified against a manually-inserted row, since a successful
+  AI completion needs Anthropic credit this session doesn't have). It
+  DOES need its own review-history doc backfilled (Phase 6, see "Next 3
+  tasks" above).
+- If `pnpm dev` in `apps/api` ever throws `EADDRINUSE` on port 4000 after
+  a watch-mode restart, an old child process didn't release the port —
+  check `Get-NetTCPConnection -LocalPort 4000` for the owning PID,
+  `Stop-Process -Id <pid> -Force`, then restart `pnpm dev`. Happened once
+  this session (Step 7); not a code bug, the same class of dev-server
+  flakiness already documented below for `apps/web`.
+- Live-browser verification of `apps/web`'s existing pages (Phase 7's
+  Project/Task/Milestone UI, CRM) is now confirmed genuinely possible —
+  caught a real, correct render of `/projects` with live data from the
+  API on 2026-07-29 — but intermittent: the same page hung on a stale
+  loading shell on a later reload with no console errors and no failed
+  network requests either time. Treat this as environment/dev-server
+  flakiness (likely resource contention in this sandbox), not a
+  reproducible code bug, until proven otherwise — don't re-diagnose it
+  as a fresh mystery next session.
+- `ANTHROPIC_API_KEY` is set in `apps/api/.env` (git-ignored) with a real,
+  working key — but the Anthropic account it belongs to has no credit
+  balance, confirmed via a direct API call. Anything that exercises
+  `AiService`/`POST /prompt-templates/:id/test` will get a real, clear
+  502 until credit is added — not a bug, don't re-diagnose this from
+  scratch next session.
+- `CORS_ALLOWED_ORIGINS` in `apps/api/.env` now includes both `:3000` and
+  `:3001` — the web dev server falls back to `:3001` when `:3000` is
+  occupied (a pre-existing process on this machine holds it), and only
+  `:3000` was allowed before this session. If browser-side API calls
+  start failing again, check this first before assuming a code regression.
+- `apps/web`'s engineering foundation, design system, marketing site,
+  business portal (all 7 Backend v1.0 modules), and now the Project/Task/
+  Milestone workspace are all built — see this file's log entries plus
+  `docs/architecture/{frontend,design-system}.md`. Anyone picking up
+  `apps/web` next should read those docs before building a new page, not
+  re-derive conventions from scratch — `features/projects/` mirrors
+  `features/crm/`'s structure exactly, and both mirror `components/data/`'s
+  generic table/pagination/filter primitives.
+- `docs/product/*.md` still reportedly has the swapped-content bug
+  `docs/implementation/` once had (see blockers.md, opened 2026-07-16) —
+  not re-verified this session; check before trusting it as a source.

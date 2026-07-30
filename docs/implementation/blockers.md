@@ -19,14 +19,6 @@ Format:
   (3) beachhead vertical. See docs/README.md "open decisions".
 - **Owner:** you
 
-## 🟡 Sprint 2 task list needs authoring (opened 2026-07-15)
-- **Blocks:** starting Sprint 2 (Marketing Site)
-- **Needs:** someone to write Sprint 2's goal/tasks/exit-check in sprint-02.md
-  from docs/product/{02-information-architecture,03-feature-design,04-ux}.md —
-  the original content was lost in the docs/implementation filename mix-up
-  (see decisions.md, 2026-07-15) and could not be recovered.
-- **Owner:** you
-
 ## 🟡 docs/product/*.md have the same swapped-content bug as docs/implementation did (opened 2026-07-16)
 - **Blocks:** trusting docs/product/ filenames at face value; not currently
   blocking any in-progress task.
@@ -41,6 +33,13 @@ Format:
 - **Owner:** you
 
 ## Resolved
+- **Sprint 2 task list needs authoring** (opened 2026-07-15, resolved
+  2026-07-26) — never re-authored from docs/product/ as originally
+  planned; instead, Sprint 2's real scope was built directly from a
+  session brief that closely matched the recovered real IA/Feature-Design
+  content (`06-client-dashboard.md`/`05-admin-dashboard.md`, despite their
+  filenames). See `docs/implementation/sprint-02.md` and
+  `docs/architecture/marketing-site.md`.
 - **docs/implementation files had swapped contents** (opened 2026-07-15, resolved same day)
   — every file in docs/implementation/ contained another file's content
   (progress.md had Sprint 1's list, sprint-01.md had Sprint 6's, etc.). Re-mapped
