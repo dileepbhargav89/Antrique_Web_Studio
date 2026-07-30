@@ -8,6 +8,9 @@ import { CollectionRepository } from './repositories/collection.repository';
 import { ProductController } from './product.controller';
 import { ProductService } from './product.service';
 import { ProductRepository } from './repositories/product.repository';
+import { ProductImageController } from './product-image.controller';
+import { ProductImageService } from './product-image.service';
+import { ProductImageRepository } from './repositories/product-image.repository';
 
 // Product Catalog Foundation (Milestone 5) — the first real business
 // module with more than one controller/service/repository, built on the
@@ -22,7 +25,12 @@ import { ProductRepository } from './repositories/product.repository';
 // this SAME module, so Nest's DI resolves the dependency without an
 // export/import round-trip.
 @Module({
-  controllers: [CategoryController, CollectionController, ProductController],
+  controllers: [
+    CategoryController,
+    CollectionController,
+    ProductController,
+    ProductImageController,
+  ],
   providers: [
     CategoryService,
     CategoryRepository,
@@ -30,6 +38,14 @@ import { ProductRepository } from './repositories/product.repository';
     CollectionRepository,
     ProductService,
     ProductRepository,
+    // Phase 7 (Product Image Upload) — a genuinely new sub-resource
+    // surface, not a modification of ProductService/ProductRepository
+    // above (see product-image.service.ts's own header comment).
+    // StorageService comes from the @Global() StorageModule, no explicit
+    // import needed here (same reasoning ContactModule/NewsletterModule
+    // document for EmailModule).
+    ProductImageService,
+    ProductImageRepository,
   ],
   // Milestone 6 (Bespoke Customizer Engine) — BespokeModule imports this
   // module to reuse ProductRepository for its own cross-module tenant-

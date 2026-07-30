@@ -96,14 +96,21 @@ other exactly):
   syntax, which Prisma wraps in an implicit transaction — this
   milestone's "transactions where appropriate" for product creation,
   without a bespoke `$transaction` call.
-- No `ProductVariantRepository`/`ProductImageRepository`/controller
-  exists — this milestone's brief lists only
-  `CategoryRepository`/`CollectionRepository`/`ProductRepository`, and
-  neither variant nor image gets independent CRUD; both are created only
-  as part of `POST /products`, never edited/removed individually. Both
-  are schema'd like `QuotationItem`/`InvoiceItem` (`createdAt`/`updatedAt`
-  only, Cascade-deleted with their parent, no soft-delete/version) — see
-  `schema.prisma`'s own comments on both models.
+- No `ProductVariantRepository`/controller exists — this milestone's
+  brief lists only `CategoryRepository`/`CollectionRepository`/
+  `ProductRepository`, and variants get no independent CRUD; they're
+  created only as part of `POST /products`, never edited/removed
+  individually. Schema'd like `QuotationItem`/`InvoiceItem`
+  (`createdAt`/`updatedAt` only, Cascade-deleted with their parent, no
+  soft-delete/version) — see `schema.prisma`'s own comment.
+- `ProductImage` DID get independent surface, added later — Phase 7's
+  `product-image.controller.ts`/`product-image.service.ts`/
+  `repositories/product-image.repository.ts`: `POST /products/:id/images`,
+  a real multipart upload to S3-compatible storage (`storage/`), reusing
+  the existing `products:write` permission. This is genuinely additive —
+  the original `POST /products` nested-create path (`url` as a plain
+  string) is unchanged; the new route is a second, parallel way to attach
+  an image. Still no edit/remove-image route.
 
 ## Database
 
@@ -186,10 +193,12 @@ Inventory, pricing engine (variant `price` is a plain stored value — no
 computation, no rules, no currency conversion), search indexing/
 ElasticSearch (`search` filtering is a plain `contains`/case-insensitive
 match, not a search index), recommendations, reviews, wishlist, cart,
-orders, Bespoke Customizer, file uploads/CDN integration (`ProductImage.url`
-is a plain string reference, not an upload — no `storageKey`/`mimeType`/
-`sizeBytes` like `Document`/`Media` have), standalone
-`ProductVariant`/`ProductImage` management, hierarchical/nested
+orders, Bespoke Customizer, CDN integration (Phase 7 added a real upload
+route — see "Product" above — but there's no CDN/image-transform layer in
+front of it, and `ProductImage` still has no `storageKey`/`mimeType`/
+`sizeBytes` columns like `Document`/`Media` have — the uploaded object's
+URL is all that's stored), standalone `ProductVariant` management or
+`ProductImage` edit/remove, hierarchical/nested
 categories, many-to-many Category/Collection↔Product relationships (both
 are simple one-to-many, per this milestone's own "Category → Products"/
 "Collection → Products" relationship list), optimistic-lock
