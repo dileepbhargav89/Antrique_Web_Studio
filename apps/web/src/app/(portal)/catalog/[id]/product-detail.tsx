@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { DetailPageHeader } from '@/components/data/detail-page-header';
 import { StatusBadge, type StatusTone } from '@/components/data/status-badge';
@@ -121,17 +122,20 @@ function ProductDetail({ id }: ProductDetailProps) {
         {product.images && product.images.length > 0 ? (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
             {product.images.map((image) => (
-              // Plain <img>, not next/image — image hosts aren't in next.config's
-              // remotePatterns allowlist (no image-upload endpoint exists; URLs are
-              // arbitrary seed data, not a known/controlled host).
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={image.id}
-                src={image.url}
-                alt={image.altText ?? ''}
-                loading="lazy"
-                className="aspect-square w-full rounded-lg border object-cover"
-              />
+              // Phase 10, Module 2 (Frontend Performance) — next.config.mjs
+              // now allowlists any HTTPS host (StorageService's bucket/CDN
+              // is deployment-specific, not knowable at build time; see
+              // that config's own comment), so this can be next/image.
+              <div key={image.id} className="relative aspect-square w-full">
+                <Image
+                  src={image.url}
+                  alt={image.altText ?? ''}
+                  fill
+                  loading="lazy"
+                  sizes="(min-width: 768px) 25vw, (min-width: 640px) 33vw, 50vw"
+                  className="rounded-lg border object-cover"
+                />
+              </div>
             ))}
           </div>
         ) : (

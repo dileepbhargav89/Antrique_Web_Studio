@@ -4575,4 +4575,39 @@ Format:
   performance.md` §10, `docs/implementation/blockers.md` (RLS gap, logged
   for Module 3 — see that entry).
 
+## 2026-07-30 — Phase 10, Module 2 (Frontend Performance): scoped down after finding most gaps already closed
+- **Decision:** audited `apps/web` against the module's full brief before
+  writing any code and found most of it already handled (fonts via
+  `next/font`, heavy three.js/GSAP already lazy-loaded and
+  viewport-gated, marketing content correctly static with no ISR gap).
+  Two findings that looked real on first pass were scoped OUT after
+  closer inspection: (1) a 19-file sweep to replace `<Suspense
+  fallback={null}>` with a skeleton — dropped because
+  `ResourceTable` already renders `<Skeleton>` for its own `isLoading`
+  state, so the real data-loading UX was already covered one component
+  down; the Suspense boundary only spans a sub-100ms RSC-streaming gap.
+  (2) adding `revalidate`/ISR config to marketing pages — dropped because
+  marketing repositories read local static data, not a backend fetch, so
+  there's no runtime source to invalidate; plain SSG is already correct.
+  What shipped instead: `next.config.mjs` `images` config + broad HTTPS
+  `remotePatterns` (a specific hostname isn't knowable at this app's
+  build time — image hosts are deployment-specific, set via `apps/api`'s
+  `STORAGE_PUBLIC_URL_BASE`), `optimizePackageImports`, production-only
+  `compiler.removeConsole`, `@next/bundle-analyzer` wiring, and migrating
+  the app's one raw `<img>` to `next/image`.
+- **Why:** "Refactor only where it improves..." and "Add only necessary"
+  (Phase 10's own instructions) argue against churning 19 files or adding
+  cache-invalidation machinery for a problem that doesn't exist at either
+  site. Verifying claims against the actual component tree before acting
+  (checking what `ResourceTable` does internally, checking what the
+  marketing repositories actually fetch) caught both false positives
+  before any code was written — the same "verify, don't assume"
+  discipline `performance.md`'s own Milestone 12 entries model.
+- **Alternatives:** the 19-file Suspense sweep and marketing ISR config
+  were both drafted as plan items before verification; not implemented
+  once verification showed the gap they'd address doesn't exist.
+- **Affects:** `apps/web/next.config.mjs`, `apps/web/package.json`,
+  `apps/web/src/app/(portal)/catalog/[id]/product-detail.tsx`,
+  `docs/architecture/frontend.md` (new Phase 10 Module 2 section).
+
 <!-- Add new decisions above this line as you build. -->

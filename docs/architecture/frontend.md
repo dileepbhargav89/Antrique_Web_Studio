@@ -156,6 +156,74 @@ phase adds real components, loading skeletons should be colocated
 generic `<Skeleton>` primitive reused everywhere, since skeleton shape
 should mirror the real content's layout.
 
+## Phase 10, Module 2 — Frontend Performance (2026-07-30)
+
+`docs/architecture/optimization.md` is a pre-implementation target-state
+doc (like `packages/api-contract` on the backend side — see `CLAUDE.md`),
+not a record of what's built; this section is that record, matching how
+`performance.md` documents the API side.
+
+**Audited, already correct — no change needed:**
+- **Fonts** (`app/layout.tsx`) — `next/font/google` for both Geist (body)
+  and Fraunces (headings), `display: 'swap'`, no render-blocking
+  `<link>` anywhere. Already optimal.
+- **Dynamic imports / code splitting** — already well-architected. The
+  three.js hero scene (`components/marketing/hero-scene.tsx` →
+  `components/three/`) is `next/dynamic(..., { ssr: false })`, additionally
+  gated behind an `IntersectionObserver` so the chunk only loads once the
+  hero scrolls into view, and skipped entirely under
+  `prefers-reduced-motion` (`home-hero.tsx`). The portal's command
+  palette (`cmdk`) is likewise dynamically imported from `portal-shell.tsx`,
+  not in the initial portal bundle. No marketing page imports
+  `components/three` directly — confirmed via grep, zero hits.
+- **Suspense fallbacks** — every list page's `<Suspense fallback={null}>`
+  (required for `useSearchParams()` in the App Router) looked like a gap
+  at first glance (blank flash while the list loads), but
+  `components/data/resource-table.tsx` already renders `<Skeleton>`
+  internally for its own `isLoading` state — the real "data is loading"
+  UX is already skeleton-covered one level down. The Suspense boundary
+  only spans the brief RSC-streaming gap before the client component
+  mounts, not real data loading. Left as-is; a 19-file sweep would have
+  been effort for a sub-100ms cosmetic gap already backstopped elsewhere.
+  (This supersedes this doc's own older "Skeleton convention (documented,
+  not built)" note above — a shared `components/ui/skeleton.tsx`
+  primitive shipped later and is the actual pattern in use via
+  `ResourceTable`, not the per-component `*.skeleton.tsx` convention that
+  note originally proposed.)
+- **Marketing ISR/cache invalidation** — no `revalidate` export exists on
+  any marketing page, which looked like a gap given CLAUDE.md's "marketing
+  = SSG/ISR." Confirmed correct as-is: every marketing repository
+  (`repositories/*.repository.ts`) reads from local static data
+  (`content/*.ts`), not a backend fetch — content is hand-authored, not
+  CMS-backed (same reasoning `ContentDraft`'s own schema comment
+  documents on the API side). Plain SSG with no revalidate window is the
+  right call; there's no runtime data source to invalidate.
+- **React Query cache** (`config/query.ts`) — global `staleTime: 60_000`,
+  default `gcTime` (5 min), sound retry logic (2x with non-retryable-4xx
+  short-circuit for queries, 0 for mutations). No fighting per-query
+  overrides found.
+
+**Changed:**
+- **`next.config.mjs`** — added `images` config (`formats: ['image/avif',
+  'image/webp']`, broad HTTPS `remotePatterns` — see that file's own
+  comment for why a specific hostname isn't knowable at build time),
+  `experimental.optimizePackageImports` for `lucide-react`/
+  `@react-three/drei` (large barrel-export packages), `compiler
+  .removeConsole` in production only (keeps `error`/`warn`). Wrapped with
+  `@next/bundle-analyzer`, gated by `ANALYZE=true` (new `pnpm analyze`
+  script, `cross-env`-wrapped for Windows).
+- **`(portal)/catalog/[id]/product-detail.tsx`** — the one raw `<img>`
+  in the whole app (product image gallery) migrated to `next/image`, now
+  that `remotePatterns` allows it.
+
+**Verification:** `pnpm --filter @antrique/web typecheck`/`lint` clean.
+`next build` compiled successfully, all 51 static pages generated, `pnpm
+analyze` produced real bundle-analyzer reports (`.next/analyze/*.html`).
+The build's final "collecting build traces" step still hits the
+pre-existing, documented Windows-only symlink `EPERM` issue (`output:
+'standalone'`'s trace-copy step, first documented in Sprint 1 —
+unaffected on Linux CI, unrelated to this module's changes).
+
 ## Architectural decisions log
 
 - **shadcn/ui installed but unused this phase.** Tooling only
