@@ -4494,4 +4494,36 @@ Format:
 - **Affects:** .github/workflows/deploy-staging.yml,
   .github/workflows/deploy-production.yml, docs/architecture/release.md.
 
+## 2026-07-30 — Committed all Phase 7-9 accumulated work in 17 logical commits; new hardening phase numbered 10, not 9
+- **Decision:** the 192 files that had sat uncommitted since the `v1.0.0`
+  tag (Phase 7 Projects, Phase 8 AI Workspace Steps 1-8, Phase 9 Step 1
+  Vendor Management, and the entire `apps/web` build) were split into 17
+  Conventional-Commits-style commits grouped by feature area (storage/
+  email/pdf infra → CRM client/quotation → contact/newsletter → catalog
+  images → projects module → AI foundation → AI feature modules → finance
+  → app.module wiring → web foundation → marketing pages → auth pages →
+  portal pages → docs), verified with a clean `pnpm typecheck` afterward.
+  Separately, the user handed over a new "Phase 9 — Production
+  Engineering, Scalability & Platform Hardening" spec (15 modules:
+  API perf, frontend perf, security hardening, auth/session security,
+  observability, monitoring, background jobs, caching, DB reliability,
+  CI/CD, Docker/infra, testing, docs, tech debt, readiness report). This
+  was numbered **Phase 10**, not Phase 9, per the user's own choice when
+  asked — Phase 9 stays the Finance module (Vendor Management done, next
+  step is Purchase Orders) and is paused, not renumbered.
+- **Why:** several sprints of work with zero checkpoint is a real risk
+  (a bad edit or accidental revert could have taken out unrelated
+  features); the user explicitly asked to commit before starting new
+  work. The phase-numbering question was a genuine ambiguity — the
+  session's own docs already define Phase 9 as Finance — so it went to
+  the user rather than being resolved unilaterally.
+- **Alternatives:** one giant commit (rejected — useless history, matches
+  none of CONTRIBUTING.md's "atomic commits" rule); renaming this to
+  Phase 9 and bumping Finance to Phase 10 (rejected by the user); skipping
+  the numbering question entirely (rejected — would leave two things both
+  claiming "Phase 9" in the docs going forward).
+- **Affects:** entire working tree (see `git log v1.0.0..HEAD` for the 17
+  commits); this phase's work will be tracked as Phase 10 in future
+  progress.md entries.
+
 <!-- Add new decisions above this line as you build. -->

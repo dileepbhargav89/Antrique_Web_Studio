@@ -4266,15 +4266,19 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. **Nothing from this session's work is committed yet** — all of Phase 8
-   (Steps 1–8, this file's newest log entries), the Project/Task/Milestone
-   module before it, plus everything from every Phase 7 entry before that
-   (CRM Client/Quotation, Contact/Newsletter, product images, and the
-   entire `apps/web` build) sits uncommitted in the working tree since the
-   `v1.0.0` tag (`27ae571`). That's several sprints of work with zero
-   checkpoint — committing (in logical chunks, not one giant commit) is
-   the single highest-value next action, independent of which feature
-   work happens next.
+1. **DONE (2026-07-30):** all of Phase 7/8/9-Step-1/apps/web that sat
+   uncommitted since the `v1.0.0` tag is now committed — 17 logical
+   commits, see `git log v1.0.0..HEAD` or decisions.md's 2026-07-30
+   entry. `pnpm typecheck` verified clean across all 5 packages
+   afterward. **Phase 10 — Production Engineering, Scalability & Platform
+   Hardening** now starts (15 modules: API perf, frontend perf, security
+   hardening, auth/session security, observability, monitoring,
+   background jobs, caching, DB reliability, CI/CD, Docker/infra,
+   testing, docs, tech debt, readiness report — full spec from the user,
+   not yet copied into its own doc). Phase 9 (Finance) is paused, not
+   renumbered — Vendor Management (Step 1) stays done, Purchase Orders
+   (Step 2) stays next whenever Finance resumes. Module 1 (API
+   Performance) is the user's chosen starting point.
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models
