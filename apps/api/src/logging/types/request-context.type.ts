@@ -10,10 +10,18 @@
 // directly in logger.service.ts. If either type changes independently,
 // that assignment stops compiling — a real, not just documented, guarantee
 // they stay compatible.
+//
+// `tenantId` (Phase 10, Module 5 — Observability) was declared on
+// LogContext from the start but never had a matching field here, so it
+// could never actually flow through — `RequestContextService.
+// updateContext()` (this module's own new addition) is what finally lets
+// a downstream middleware (TenantMiddleware) enrich an already-running
+// context with it, once tenant resolution completes.
 export interface RequestContext {
   requestId: string;
   correlationId: string;
   traceId?: string;
+  tenantId?: string;
   userId?: string;
   sessionId?: string;
   ip?: string;

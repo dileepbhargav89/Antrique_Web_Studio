@@ -11,6 +11,41 @@ import { HttpLoggingMiddleware } from './common/middleware/http-logging.middlewa
 import { VALIDATION_PIPE_OPTIONS } from './common/pipes/validation-pipe.options';
 import { applyApiRouting } from './bootstrap/api-routing';
 import { buildSwaggerDocument } from './bootstrap/swagger-document';
+import { LOGGER, Logger as AppLogger } from './logging';
+
+// Phase 10, Module 5 (Observability) — "process-level crash visibility."
+// Confirmed absent by this module's own audit: nothing anywhere caught
+// `uncaughtException`/`unhandledRejection` before this — the only
+// process-level safety net was `bootstrap().catch()` at the bottom of
+// this file, which covers only the async portion of bootstrap() itself
+// (e.g. `app.listen()` failing), not anything thrown later from
+// request-handling code OUTSIDE Nest's own exception-filter machinery
+// (a raw `setTimeout`/fire-and-forget promise no Nest-managed code path
+// ever awaits). Registered at module load — before `bootstrap()` even
+// runs — for the widest possible coverage window, matching
+// `bootstrap().catch()`'s own reasoning for using plain `console.error`
+// rather than the app's structured `LOGGER`: this can fire before Nest's
+// DI container exists at all, so there is no `LOGGER` to reach for yet.
+// Both exit(1): an uncaught exception or unhandled rejection means the
+// process reached a state nothing in its own code anticipated —
+// continuing to serve requests from there risks silent data corruption
+// or a slow, confusing failure mode far worse than a clean, logged
+// restart (which a container orchestrator's own restart policy already
+// exists to handle). This also makes behavior deterministic across Node
+// versions for unhandled rejections specifically, rather than relying
+// on whatever Node's own default (`--unhandled-rejections` mode) happens
+// to be.
+process.on('uncaughtException', (error) => {
+  // eslint-disable-next-line no-console
+  console.error('uncaughtException', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('unhandledRejection', reason);
+  process.exit(1);
+});
 
 // Milestone 13 (Security Hardening) — "request size limits, JSON body
 // limits." Every real DTO body in this API is a small business object
@@ -245,17 +280,29 @@ async function bootstrap() {
   // "sent SIGTERM" event has nothing in this app's own log to correlate
   // against. See docs/architecture/runbook.md "Shutdown sequence" for the
   // full ordered list this produces end to end.
-  const shutdownLogger = new Logger('Bootstrap');
+  //
+  // Phase 10, Module 5 (Observability) — this and the final "listening"
+  // line below now go through the app's own structured `LOGGER`
+  // (resolvable here — `app` is fully constructed by this point, unlike
+  // the very first "bootstrap starting..." line above main.ts's own
+  // `bootstrap()`, which genuinely cannot: nothing has been constructed
+  // yet). Previously both used `@nestjs/common`'s built-in `Logger` —
+  // non-JSON, colorized output that bypassed `ConsoleLogTransport`/
+  // `JsonLogFormatter` entirely, so log-aggregation tooling expecting
+  // uniform JSON on stdout would see a handful of differently-shaped
+  // lines at every process start/stop. Confirmed via this module's own
+  // audit — a real, if minor, inconsistency, not a hypothetical one.
+  const logger = app.get<AppLogger>(LOGGER);
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.on(signal, () => {
-      shutdownLogger.log(`${signal} received — starting graceful shutdown...`);
+      logger.info(`${signal} received — starting graceful shutdown...`);
     });
   }
   app.enableShutdownHooks();
 
   await app.listen(port);
 
-  new Logger('Bootstrap').log(
+  logger.info(
     `Antrique API listening on port ${port} (prefix: /api/v1, env: ${nodeEnv}, version: ${version})`,
   );
 }

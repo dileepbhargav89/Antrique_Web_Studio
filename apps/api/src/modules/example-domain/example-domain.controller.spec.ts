@@ -5,7 +5,7 @@ import { PingResponseDto } from './dto/ping-response.dto';
 import { OrganizationResponseDto } from './dto/organization-response.dto';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 
 // Unlike example-domain.service.spec.ts (a plain unit test — no DI
 // involved), this resolves the controller through a real Nest
@@ -42,6 +42,7 @@ describe('ExampleDomainController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
   }

@@ -3,7 +3,7 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), and Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints) — working through remaining modules sequentially, Module 5 (Observability) next**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints), and Module 5 (Observability) complete (`docs/architecture/operations.md` §10 — tenantId/userId now flow into every log line, sensitive-field redaction, process-level crash handlers, structured bootstrap/shutdown logs) — working through remaining modules sequentially, Module 6 (Monitoring) next**
 
 **Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
 (Email Assistant) was already fully built, tested, and wired in — module,
@@ -98,6 +98,42 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 5 (Observability) (`apps/api`)** — audited logging/
+  tracing/correlation/health/error-visibility (Module 6, separate, covers
+  metrics/alerting/dashboards). Found structured JSON logging, request
+  IDs, and health checks already mature (Milestone 12-14); closed the
+  real gaps: `tenantId`/`userId` were declared on `LogContext` since
+  Phase 1.2C.4 but never actually populated (a structural gap — the
+  underlying `RequestContext` store type didn't even have a `tenantId`
+  field) — added `RequestContextService.updateContext()` (mutates the
+  already-running context in place, for a middleware/guard running LATER
+  than the one that establishes it) and wired it into `TenantMiddleware`/
+  `JwtAuthGuard`. Added sensitive-field redaction to `JsonLogFormatter`
+  (password/token/secret/etc. → `[REDACTED]`, any nesting depth) — no
+  active exposure closed (nothing currently logs a body/header), a
+  guardrail against a future call site. Added process-level
+  `uncaughtException`/`unhandledRejection` handlers (previously zero —
+  confirmed by grep) and fixed `main.ts`'s bootstrap/shutdown log lines
+  to use the app's own structured `LOGGER` instead of `@nestjs/common`'s
+  built-in non-JSON one. Distributed tracing (OpenTelemetry) and
+  third-party error tracking (Sentry) audited and deliberately deferred
+  — no APM backend configured anywhere this app deploys, single-service
+  monolith, documented reasoning in `logging/README.md`.
+  **Real, non-trivial ripple effect found and fixed**: `JwtAuthGuard`
+  gaining a second constructor dependency broke 37 existing
+  `*.controller.spec.ts` files that build a real `Test.createTestingModule`
+  for a `JwtAuthGuard`-protected controller — found via a source-level
+  grep cross-reference (every `@UseGuards(JwtAuthGuard` controller vs.
+  its own spec file), not by trusting a truncated CI log, confirmed the
+  count matched exactly, fixed all 37 with two targeted `sed` passes
+  (identical `AUDIT_LOGGER` import/provider lines across all of them).
+  Live-verified against a real compiled server: `GET /auth/sessions`
+  (authenticated + tenant-scoped) logs both `tenantId` and `userId`; an
+  unauthenticated tenant-scoped request logs `tenantId` only;
+  `GET /health/live` logs neither; the bootstrap "listening on port" line
+  is now real structured JSON. `pnpm --filter @antrique/api typecheck`/
+  `lint` clean; full suite 188 suites/1143 tests, all passing. Full
+  writeup: `docs/architecture/operations.md` §10.
 - **Phase 10, Module 4 (Authentication & Session Security) (`apps/api` +
   `apps/web`)** — closed the largest remaining gap `security.md` §13 had
   flagged since Milestone 13: refresh tokens were stateless (no
@@ -4385,25 +4421,30 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. **DONE (2026-07-30):** Phase 10, Modules 1-4 (API Performance,
+1. **DONE (2026-07-30):** Phase 10, Modules 1-5 (API Performance,
    Frontend Performance, Security Hardening, Authentication & Session
-   Security) — see this file's own newest log entries,
+   Security, Observability) — see this file's own newest log entries,
    `docs/architecture/performance.md` §10, `docs/architecture/
-   frontend.md`'s Module 2 section, and `docs/architecture/security.md`
-   §16-§17 for full writeups. Module 3 closed the RLS `SET LOCAL` gap
-   flagged in Module 1 (see blockers.md's now-resolved entry) and
-   caught/fixed a real blank-app CSP regression via live browser
-   verification. Module 4 closed the stateless-refresh-token gap
-   `security.md` §13 had flagged since Milestone 13 (real session-backed
-   rotation, reuse detection, account lockout, concurrent-session
-   limits) and caught/fixed a real stale-placeholder-response bug
-   (`LogoutResponseDto`) via live server testing. User has directed
-   working through Phase 10's remaining 11 modules sequentially
+   frontend.md`'s Module 2 section, `docs/architecture/security.md`
+   §16-§17, and `docs/architecture/operations.md` §10 for full writeups.
+   Module 3 closed the RLS `SET LOCAL` gap flagged in Module 1 (see
+   blockers.md's now-resolved entry) and caught/fixed a real blank-app
+   CSP regression via live browser verification. Module 4 closed the
+   stateless-refresh-token gap `security.md` §13 had flagged since
+   Milestone 13 (real session-backed rotation, reuse detection, account
+   lockout, concurrent-session limits) and caught/fixed a real
+   stale-placeholder-response bug (`LogoutResponseDto`) via live server
+   testing. Module 5 closed the tenantId/userId-missing-from-logs gap,
+   added redaction and process-level crash handlers, and — while fixing
+   the ripple effect of `JwtAuthGuard`'s new constructor dependency —
+   found and fixed 37 test suites broken by it (a source-level grep
+   cross-reference, not a guess, confirmed the exact count). User has
+   directed working through Phase 10's remaining 10 modules sequentially
    (complete one, move to the next, no per-module check-in needed):
-   observability, monitoring, background jobs, caching, DB reliability,
-   CI/CD, Docker/infra, testing, docs, tech debt, readiness report (full
-   spec from the user, not yet copied into its own doc) — **Module 5
-   (Observability) is next**.
+   monitoring, background jobs, caching, DB reliability, CI/CD,
+   Docker/infra, testing, docs, tech debt, readiness report (full spec
+   from the user, not yet copied into its own doc) — **Module 6
+   (Monitoring) is next**.
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

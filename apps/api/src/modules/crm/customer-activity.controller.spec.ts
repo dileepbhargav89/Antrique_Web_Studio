@@ -5,7 +5,7 @@ import { CustomerActivityRepository } from './repositories/customer-activity.rep
 import { CustomerRepository } from '../orders/repositories/customer.repository';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 
 const TENANT: { tenantId: string } = { tenantId: '00000000-0000-7000-8000-000000000001' };
 
@@ -32,6 +32,7 @@ describe('CustomerActivityController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

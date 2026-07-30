@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { TokenService } from '../../jwt/token.service';
 import { RequestUser } from '../../types/request-user.type';
 import { AUTHORIZATION_HEADER, BEARER_PREFIX } from './jwt-auth.constant';
+import { RequestContextService } from '../../logging';
 
 // Milestone 2 (Authorization Foundation) — a hand-written CanActivate
 // guard, not Passport (explicitly out of scope): verifies the
@@ -17,7 +18,10 @@ import { AUTHORIZATION_HEADER, BEARER_PREFIX } from './jwt-auth.constant';
 // AuthService.refresh() already established for the reverse direction.
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly tokenService: TokenService) {}
+  constructor(
+    private readonly tokenService: TokenService,
+    private readonly requestContext: RequestContextService,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
@@ -47,6 +51,18 @@ export class JwtAuthGuard implements CanActivate {
     // requirement) a real runtime guarantee, not only a `readonly` type
     // hint a caller could still bypass with an `as` cast.
     request.user = Object.freeze({ email: decoded.email });
+
+    // Phase 10, Module 5 (Observability) — enriches the already-running
+    // RequestContext with `userId` so every log line for the rest of
+    // this request is attributable to a real caller, the same way
+    // TenantMiddleware already does for `tenantId`. `email`, not a
+    // database id: `RequestUser`/the token payload never carry one (see
+    // this guard's own header comment) — the same identity value audit
+    // logging already uses as `actorId` (auth.service.ts), so this stays
+    // consistent with the one identity key this codebase actually has
+    // readily available at the HTTP layer.
+    this.requestContext.updateContext({ userId: decoded.email });
+
     return true;
   }
 }

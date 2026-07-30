@@ -4,6 +4,7 @@ import { TenantResolver } from '../tenant-resolver.service';
 import { TenantContext } from '../../types/tenant-context.type';
 import { OrganizationContext } from '../../types/organization-context.type';
 import { TenantRlsContextService } from '../../database/tenant-rls-context.service';
+import { RequestContextService } from '../../logging';
 
 // The orchestration half of tenant resolution — calls TenantResolver
 // (../tenant-resolver.service.ts, pure decision logic) once, then
@@ -41,6 +42,7 @@ export class TenantMiddleware implements NestMiddleware {
   constructor(
     private readonly tenantResolver: TenantResolver,
     private readonly tenantRlsContext: TenantRlsContextService,
+    private readonly requestContext: RequestContextService,
   ) {}
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
@@ -56,6 +58,15 @@ export class TenantMiddleware implements NestMiddleware {
 
       req.tenantContext = tenantContext;
       req.organizationContext = organizationContext;
+
+      // Phase 10, Module 5 (Observability) — enriches the ALREADY-running
+      // RequestContext (established upstream by HttpLoggingMiddleware,
+      // which must run first — see that class's own comment) with
+      // `tenantId`, so every log line for the rest of this request
+      // carries it, the same way requestId/correlationId already do. A
+      // mutation, not a new `run()` — see RequestContextService.
+      // updateContext()'s own comment for why.
+      this.requestContext.updateContext({ tenantId: resolved.id });
 
       // Phase 10, Module 3 (Security Hardening) — seeds the RLS session
       // context `PrismaService`'s own `$extends` query hook reads.

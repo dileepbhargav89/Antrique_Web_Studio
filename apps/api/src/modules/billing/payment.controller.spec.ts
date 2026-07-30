@@ -6,7 +6,7 @@ import { InvoiceRepository } from './repositories/invoice.repository';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { InvoiceStatus, PaymentStatus } from '../../../generated/prisma/enums';
 import { Prisma } from '../../../generated/prisma/client';
 
@@ -64,6 +64,7 @@ describe('PaymentController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

@@ -10,7 +10,7 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { VoidInvoiceDto } from './dto/void-invoice.dto';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { InvoiceStatus } from '../../../generated/prisma/enums';
 import { Prisma } from '../../../generated/prisma/client';
 
@@ -92,6 +92,7 @@ describe('InvoiceController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

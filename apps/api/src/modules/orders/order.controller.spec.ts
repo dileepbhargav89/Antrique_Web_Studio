@@ -12,7 +12,7 @@ import { ChangeOrderStatusDto } from './dto/change-order-status.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { Prisma } from '../../../generated/prisma/client';
 import { OrderStatus } from '../../../generated/prisma/enums';
 
@@ -96,6 +96,7 @@ describe('OrderController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

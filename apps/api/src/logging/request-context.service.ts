@@ -39,4 +39,27 @@ export class RequestContextService {
   getContext(): RequestContext | undefined {
     return this.storage.getStore();
   }
+
+  // Phase 10, Module 5 (Observability) — lets a middleware/guard running
+  // LATER in the same request's chain (TenantMiddleware, JwtAuthGuard —
+  // neither of which establishes the context itself, HttpLoggingMiddleware
+  // already did) enrich the already-running context once it learns
+  // something new (tenantId, userId), instead of every log line missing
+  // those fields for the rest of the request. `getStore()` returns a live
+  // reference to the same object every reader downstream also holds, so
+  // mutating it in place (not swapping in a new object) is what makes the
+  // update visible without a second `run()` — a second `run()` would
+  // start a NEW nested scope, restored back to the outer one the moment
+  // its own callback returns, which is the wrong shape for "the rest of
+  // THIS request should see this from now on." A no-op outside any
+  // run() — nothing to enrich, and no future middleware ever runs one
+  // without a context already established upstream (see
+  // HttpLoggingMiddleware's own comment on why it must run first).
+  updateContext(patch: Partial<RequestContext>): void {
+    const context = this.storage.getStore();
+    if (context === undefined) {
+      return;
+    }
+    Object.assign(context, patch);
+  }
 }

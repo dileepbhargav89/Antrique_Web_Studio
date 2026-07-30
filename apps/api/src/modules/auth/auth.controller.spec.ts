@@ -13,7 +13,7 @@ import { LogoutResponseDto } from './dto/logout-response.dto';
 import { TenantContext } from '../../types/tenant-context.type';
 import { RequestMeta } from '../../types/request-meta.type';
 import { RequestUser } from '../../types/request-user.type';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 
 const TENANT: TenantContext = { tenantId: '00000000-0000-7000-8000-000000000001' };
 const REQUEST_META: RequestMeta = { userAgent: 'jest', ipAddress: '127.0.0.1' };
@@ -121,6 +121,7 @@ describe('AuthController', () => {
           useValue: overrides.passwordService ?? createPasswordServiceMock(),
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

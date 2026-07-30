@@ -94,17 +94,24 @@ of when one gets built:
 
 ## 6. Incident response: a leaked JWT secret or a compromised credential
 
-1. Rotate the affected secret immediately (§3) — this is the only server-side
-   revocation mechanism that exists (no per-token revoke list, no
-   refresh-token-reuse detection — `security.md` §13).
-2. For a single compromised user account rather than a leaked signing
-   secret: there is no way to revoke that user's specific outstanding
-   tokens without rotating the shared secret for everyone. This is a real
-   operational gap stemming directly from the "no refresh-token
-   rotation/reuse detection" accepted risk in `security.md` §13 — building
-   per-session revocation is the fix, and is explicitly out of this
-   milestone's scope (new session-state tracking, not a hardening pass over
-   existing code).
+**Updated by Phase 10, Module 4 (Authentication & Session Security) —
+per-session revocation is now real; steps 1-2 below are rewritten from
+their original Milestone 13 text, which described this as an open gap.**
+
+1. For a single compromised user account: revoke their sessions directly —
+   `DELETE /auth/sessions/:id` for one, or have them log in and use §5's
+   `user.login`/`authz.*` events to confirm no other session survived. No
+   admin-initiated "revoke all sessions for this user" endpoint exists yet
+   (only the user's own `GET`/`DELETE /auth/sessions*`, JWT-guarded to the
+   caller's own sessions) — for now, rotating that one user's password
+   (once a password-reset flow exists — `security.md` §17.5 notes none
+   does yet) is the equivalent for an account you don't control.
+2. Rotate the shared JWT signing secret (§3) only for a genuinely
+   *systemic* compromise (the secret itself leaked, not one user's
+   credential) — this invalidates every access token instantly and every
+   refresh token on its next use, a much blunter instrument than
+   session-level revocation and should not be reached for by default now
+   that a narrower option exists.
 3. Check `authz.role_denied`/`authz.permission_denied` and `user.login`
    FAILURE events for the affected `actorId` around the incident window to
    scope what the compromised credential was actually used/attempted for.
@@ -196,3 +203,54 @@ copy; `apps/api/scripts/generate-openapi.ts` + CI's `openapi-generation`
 job now ALSO produce `openapi.json` as a downloadable artifact for
 frontend developers who don't have (or don't want) a running backend
 instance to hit — see `cicd.md` §11.
+
+## 10. Phase 10, Module 5 — Observability (2026-07-30)
+
+Audited logging/tracing/correlation/health/error-visibility (metrics/
+alerting/dashboards are Module 6 — Monitoring, separate scope). Full
+account: `apps/api/src/logging/README.md`'s own "Future extension
+points" section and `docs/implementation/decisions.md`'s 2026-07-30
+Module 5 entry. Summary for operational purposes:
+
+- **Every log line is now attributable to a tenant and (when
+  authenticated) a user.** `requestId`/`correlationId` already flowed
+  through every log line (Milestone 14); `tenantId`/`userId` did not — a
+  real gap for anyone trying to scope an incident to one tenant/customer
+  from logs alone. Closed: `TenantMiddleware`/`JwtAuthGuard` now enrich
+  the active request's log context once each resolves. When grepping
+  logs for an incident, filter on `context.tenantId`/`context.userId` the
+  same way you already would on `context.requestId`.
+- **Sensitive-field redaction exists now**, at the `JsonLogFormatter`
+  layer — any metadata key matching `password`/`secret`/`token`/
+  `authorization`/`apikey`/`privatekey`/`creditcard`/`cvv` (case-
+  insensitive substring match, any nesting depth) renders as
+  `[REDACTED]`. Nothing currently logs a request body/header (confirmed
+  by this module's audit), so this closes no active exposure — it's a
+  guardrail for a future call site, not a response to an incident.
+- **Process-level crash visibility.** `uncaughtException`/
+  `unhandledRejection` now log (plain `console.error`, not the
+  structured `LOGGER` — registered before Nest's DI container exists)
+  and exit the process. Previously: a Node default warning with no
+  guaranteed process exit, and nothing outside `ExceptionLoggingFilter`'s
+  own HTTP-request-scoped coverage. If a deploy log shows one of these
+  two event names, treat it as a real crash needing investigation, not
+  routine noise — the process exits immediately after logging it, so a
+  container orchestrator's own restart-policy log entry should follow
+  right behind it.
+- **Bootstrap/shutdown log lines are now the same structured JSON as
+  everything else.** Previously used `@nestjs/common`'s built-in
+  (non-JSON, colorized) `Logger` — a real, if minor, inconsistency for
+  log-aggregation tooling expecting uniform JSON on stdout.
+- **Distributed tracing (OpenTelemetry) and third-party error tracking
+  (Sentry etc.) remain deliberately unbuilt** — audited and confirmed no
+  APM/tracing backend is configured in any environment this app deploys
+  to today (`SENTRY_DSN`/`OTEL_EXPORTER_OTLP_ENDPOINT` sit blank in
+  `.env.example`), and this is a single-service monolith, so the value a
+  span adds over the already-real `requestId`/`correlationId`
+  propagation is real only once either changes. Not a promise this
+  module fulfilled late — see `logging/README.md`'s own "Future
+  extension points" for the full reasoning.
+- **Health checks re-confirmed correctly scoped** — `GET /health/*`
+  checks PostgreSQL only, and that's correct: the cache module
+  (`apps/api/src/cache/`) is in-process/in-memory, not a real Redis
+  dependency, so there is no second external dependency to check yet.

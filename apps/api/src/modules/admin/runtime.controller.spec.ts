@@ -3,7 +3,7 @@ import { RuntimeController } from './runtime.controller';
 import { RuntimeService } from './runtime.service';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { RuntimeInfoResponseDto } from './dto/runtime-info-response.dto';
 
 describe('RuntimeController', () => {
@@ -18,6 +18,7 @@ describe('RuntimeController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

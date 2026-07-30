@@ -11,7 +11,7 @@ import { FollowUpRepository } from '../crm/repositories/follow-up.repository';
 import { ProductRepository } from '../catalog/repositories/product.repository';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { PerformanceLogger } from '../../logging';
 import { Prisma } from '../../../generated/prisma/client';
 
@@ -77,6 +77,7 @@ describe('DashboardController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
         {
           provide: PerformanceLogger,
           useValue: { measureAsync: (_op: string, fn: () => unknown) => fn() },

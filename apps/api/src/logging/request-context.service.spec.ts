@@ -80,6 +80,61 @@ describe('RequestContextService', () => {
     expect(service.getContext()).toBeUndefined();
   });
 
+  // Phase 10, Module 5 (Observability).
+  describe('updateContext()', () => {
+    it('merges a patch into the currently running context', () => {
+      const observed = service.run(ctx(), () => {
+        service.updateContext({ tenantId: 't1' });
+        return service.getContext();
+      });
+
+      expect(observed).toEqual(ctx({ tenantId: 't1' }));
+    });
+
+    it('overwrites a field the running context already had', () => {
+      const observed = service.run(ctx({ tenantId: 'old' }), () => {
+        service.updateContext({ tenantId: 'new' });
+        return service.getContext();
+      });
+
+      expect(observed).toEqual(ctx({ tenantId: 'new' }));
+    });
+
+    it('a later call sees an earlier updateContext() — the mutation persists forward, not just for one read', () => {
+      const observed = service.run(ctx(), () => {
+        service.updateContext({ tenantId: 't1' });
+        service.updateContext({ userId: 'u1' });
+        return service.getContext();
+      });
+
+      expect(observed).toEqual(ctx({ tenantId: 't1', userId: 'u1' }));
+    });
+
+    it('is a no-op outside any run() — never throws', () => {
+      expect(() => service.updateContext({ tenantId: 't1' })).not.toThrow();
+      expect(service.getContext()).toBeUndefined();
+    });
+
+    it("does not leak into a sibling run()'s context", async () => {
+      const observations: Array<RequestContext | undefined> = [];
+
+      const runOne = (id: string, delayMs: number, patch: Partial<RequestContext>) =>
+        service.run(ctx({ requestId: id }), async () => {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          service.updateContext(patch);
+          observations.push(service.getContext());
+        });
+
+      await Promise.all([
+        runOne('req-a', 20, { tenantId: 'tenant-a' }),
+        runOne('req-b', 5, { tenantId: 'tenant-b' }),
+      ]);
+
+      expect(observations).toContainEqual(ctx({ requestId: 'req-a', tenantId: 'tenant-a' }));
+      expect(observations).toContainEqual(ctx({ requestId: 'req-b', tenantId: 'tenant-b' }));
+    });
+  });
+
   it('a nested run() shadows the outer context, then the outer context is restored', () => {
     const outer = ctx({ requestId: 'outer' });
     const inner = ctx({ requestId: 'inner' });

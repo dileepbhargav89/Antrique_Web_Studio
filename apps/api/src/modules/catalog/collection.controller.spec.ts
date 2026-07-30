@@ -5,7 +5,7 @@ import { CollectionRepository } from './repositories/collection.repository';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 
 const TENANT: { tenantId: string } = { tenantId: '00000000-0000-7000-8000-000000000001' };
 
@@ -36,6 +36,7 @@ describe('CollectionController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

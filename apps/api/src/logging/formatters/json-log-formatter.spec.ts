@@ -59,4 +59,44 @@ describe('JsonLogFormatter', () => {
       stack: error.stack,
     });
   });
+
+  // Phase 10, Module 5 (Observability) — sensitive-field redaction.
+  describe('redaction', () => {
+    it.each([
+      ['password', 'hunter2'],
+      ['newPassword', 'hunter2'],
+      ['passwordHash', '$argon2id$...'],
+      ['refreshToken', 'eyJhbGciOi...'],
+      ['accessToken', 'eyJhbGciOi...'],
+      ['clientSecret', 'shh'],
+      ['authorization', 'Bearer xyz'],
+      ['apiKey', 'sk_live_...'],
+      ['creditCardNumber', '4111111111111111'],
+      ['cvv', '123'],
+    ])('redacts %s in metadata regardless of case/position', (key, value) => {
+      const parsed = JSON.parse(formatter.format({ ...baseEntry, metadata: { [key]: value } }));
+      expect(parsed.metadata[key]).toBe('[REDACTED]');
+    });
+
+    it('redacts a sensitive key nested arbitrarily deep, not just at the top level', () => {
+      const parsed = JSON.parse(
+        formatter.format({ ...baseEntry, metadata: { user: { credentials: { password: 'x' } } } }),
+      );
+      expect(parsed.metadata.user.credentials.password).toBe('[REDACTED]');
+    });
+
+    it('leaves non-sensitive fields untouched', () => {
+      const parsed = JSON.parse(
+        formatter.format({ ...baseEntry, metadata: { orderId: '123', tenantId: 't1' } }),
+      );
+      expect(parsed.metadata).toEqual({ orderId: '123', tenantId: 't1' });
+    });
+
+    it('redacts before Error-expansion would apply, for a sensitive key whose value happens to be an Error', () => {
+      const parsed = JSON.parse(
+        formatter.format({ ...baseEntry, metadata: { token: new Error('leaked value') } }),
+      );
+      expect(parsed.metadata.token).toBe('[REDACTED]');
+    });
+  });
 });

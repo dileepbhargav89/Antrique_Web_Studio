@@ -5,7 +5,7 @@ import { NotificationRepository } from './repositories/notification.repository';
 import { AuditRepository } from './repositories/audit.repository';
 import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
-import { AUDIT_LOGGER } from '../../logging';
+import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { NotificationChannel, NotificationStatus } from '../../../generated/prisma/enums';
 
 const TENANT: { tenantId: string } = { tenantId: '00000000-0000-7000-8000-000000000001' };
@@ -59,6 +59,7 @@ describe('NotificationController', () => {
           useValue: { resolveRoleKeys: jest.fn(), resolvePermissionKeys: jest.fn() },
         },
         { provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },
+        RequestContextService,
       ],
     }).compile();
 

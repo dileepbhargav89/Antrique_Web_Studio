@@ -4779,4 +4779,95 @@ Format:
   extended), `apps/web/src/app/api/auth/logout/route.ts`,
   `docs/architecture/security.md` §13/§17.
 
+## 2026-07-30 — Phase 10, Module 5 (Observability): mutate the running RequestContext in place rather than nesting a second run(), batch-fixed 37 test suites broken by a guard's new constructor dependency
+
+- **Decision:** added `RequestContextService.updateContext(patch)` —
+  mutates the currently-running `AsyncLocalStorage` store's object
+  in place (`Object.assign(this.storage.getStore(), patch)`), a no-op
+  outside any `run()`. `TenantMiddleware` calls it with `tenantId` once
+  tenant resolution completes; `JwtAuthGuard` calls it with `userId` (the
+  authenticated user's `email` — the token payload/`RequestUser` carry no
+  database id) once a token verifies. Both run LATER than
+  `HttpLoggingMiddleware`'s own `RequestContextService.run()` call, which
+  is what actually establishes the context every request gets — this
+  addition lets code running downstream of that enrich it, rather than
+  needing to have known everything up front.
+- **Why not a second, nested `run()` call instead?** A nested `run()`
+  shadows the outer context only for the duration of ITS OWN callback,
+  then the outer context is restored the instant that callback returns
+  (see `request-context.service.spec.ts`'s own "a nested run() shadows
+  the outer context" test) — the wrong shape for "the rest of THIS
+  request, including code that runs after TenantMiddleware/JwtAuthGuard
+  return, should see this from now on." Mutating the live store object
+  `getStore()` already returns is what every other reader downstream
+  (the `res.on('finish', ...)` handler that logs "HTTP request
+  completed," `ExceptionLoggingFilter`, `AuditLoggerService`) needs to
+  actually observe the enrichment, since they call `getContext()` fresh
+  at their own, later point in time rather than holding a snapshot.
+  Live-verified: a `GET /auth/sessions` request's "HTTP request
+  completed" log line carries both `tenantId` and `userId`; an
+  unauthenticated tenant-scoped request carries `tenantId` only; `GET
+  /health/live` carries neither (health routes are exempt from
+  `TenantMiddleware`) — confirmed against a real compiled server, not
+  just the unit tests that exercise `updateContext()` in isolation.
+- **`RequestContext` gained a `tenantId` field it didn't have before.**
+  `LogContext` (the log-entry-facing type) declared `tenantId?` since
+  Phase 1.2C.4, but `RequestContext` (the actual `AsyncLocalStorage`
+  store shape) never had a matching field — so `tenantId` could never
+  actually reach a log line no matter what middleware tried to do,
+  structurally, not just because nothing called the right method yet.
+  This was the specific, concrete gap this module's own audit found and
+  is what made `updateContext()` worth building at all.
+- **A single guard constructor change broke 37 existing test suites —
+  found via source search, not by reading truncated CI output.**
+  `JwtAuthGuard` gaining a second constructor parameter
+  (`RequestContextService`) meant every existing `Test.createTestingModule`
+  spec for a `JwtAuthGuard`-protected controller that never mocked the
+  guard (Nest auto-instantiates guards referenced via `@UseGuards()`
+  using the real class unless overridden) now failed dependency
+  resolution. The first full-suite run's own captured output was
+  truncated (a rolling buffer, not the complete log) and only showed 2
+  of the real ~100+ individual test failures — rather than trust that
+  partial view, grepped the SOURCE directly: every `*.controller.ts`
+  using `@UseGuards(JwtAuthGuard` cross-referenced against its own
+  `*.controller.spec.ts` using `Test.createTestingModule` — 37 files,
+  which matched the earlier run's own "37 failed" summary count exactly,
+  confirming both the scope and that nothing was missed. All 37 followed
+  the byte-identical `{ provide: AUDIT_LOGGER, useValue: { log: jest.fn() } },`
+  provider line and `import { AUDIT_LOGGER } from '../../logging';` import
+  line (this codebase's own established consistency paid off here) —
+  fixed with two `sed` passes across all 37 at once rather than 37
+  individual hand-edits, then verified via a full suite run (188/188
+  suites, 1143/1143 tests passing) and a spot-check of several files by
+  hand.
+- **Sensitive-field redaction uses substring matching, not exact key
+  names.** `JsonLogFormatter`'s existing `JSON.stringify` replacer
+  (previously Error-expansion only) now also checks each key against a
+  fixed list (`password`, `secret`, `token`, `authorization`, `apikey`,
+  `privatekey`, `creditcard`, `cvv`) via `.includes()`, case-insensitive —
+  `passwordHash`/`refreshToken`/`clientSecret` all match without every
+  field-name variant needing individual enumeration. Accepted trade-off:
+  a rare false positive (redacting a legitimate field whose name happens
+  to contain one of these words) is preferable to a credential silently
+  reaching a log line.
+- **Distributed tracing (OpenTelemetry) and third-party error tracking
+  (Sentry) deliberately NOT built**, despite `SENTRY_DSN`/
+  `OTEL_EXPORTER_OTLP_ENDPOINT` sitting as blank placeholders in
+  `.env.example`. No APM/tracing backend is configured in any
+  environment this app currently deploys to, and this is a
+  single-service monolith — a trace span's value over the already-real
+  `requestId`/`correlationId` propagation is real only once either a
+  second service exists to trace across or a backend exists to receive
+  spans. Third-party error tracking's dashboard/alerting value overlaps
+  with Module 6 (Monitoring)'s scope, tracked there instead.
+- **Affects:** `apps/api/src/logging/{types/request-context.type.ts,
+  request-context.service.ts,request-context.service.spec.ts,
+  formatters/json-log-formatter.ts,formatters/json-log-formatter.spec.ts,
+  README.md}`, `apps/api/src/tenant/middleware/{tenant.middleware.ts,
+  tenant.middleware.spec.ts}`, `apps/api/src/common/guards/
+  {jwt-auth.guard.ts,jwt-auth.guard.spec.ts}`, `apps/api/src/main.ts`, 37
+  `*.controller.spec.ts` files across nearly every business module (see
+  `docs/implementation/progress.md`'s own log entry for the full list),
+  `docs/architecture/operations.md` §6/§10.
+
 <!-- Add new decisions above this line as you build. -->

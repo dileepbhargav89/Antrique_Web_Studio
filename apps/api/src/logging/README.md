@@ -1,4 +1,13 @@
-# Logging (Phase 1.2C.9 — Module Integration & Developer Experience)
+# Logging (Phase 1.2C.9 — Module Integration & Developer Experience; extended Phase 10, Module 5 — Observability)
+
+**Changed by Phase 10, Module 5.** `tenantId`/`userId` now actually flow
+into every log line (previously declared on `LogContext` but never
+populated — see "Future extension points" below), `JsonLogFormatter`
+redacts sensitive-looking keys, and `main.ts`'s shutdown/final-listening
+log lines now go through this module's own structured `LOGGER` instead of
+`@nestjs/common`'s built-in one. See "Future extension points" for the
+full account, `docs/architecture/security.md` §18, and
+`docs/implementation/decisions.md`'s 2026-07-30 Module 5 entry.
 
 This doc is architecture and design rationale — every genuine judgment
 call across Phases 1.2C.1–1.2C.9. For usage examples, best-practice
@@ -122,7 +131,8 @@ apps/api/src/logging/
                                userId?, traceId?, sessionId?, ip?, userAgent? (extended
                                Phase 1.2C.4 to match RequestContext).
     request-context.type.ts    RequestContext — requestId/correlationId required,
-                               traceId?/userId?/sessionId?/ip?/userAgent? optional.
+                               traceId?/tenantId?/userId?/sessionId?/ip?/userAgent?
+                               optional (tenantId added Phase 10, Module 5).
                                Structurally assignable to LogContext directly.
     log-metadata.type.ts       LogMetadata — Record<string, unknown> alias.
     audit-event.type.ts        AuditEvent — event, action, resource,
@@ -342,20 +352,53 @@ no interface changes required:
   calls `RequestContextService.run()` once per request — no
   `LoggerService`/formatter/transport change was needed to make this work,
   exactly as this section anticipated.
-- **Audit logging — foundation done (Phase 1.2C.8).** `AuditLoggerService`
-  implements `AuditLogger`, bound to `AUDIT_LOGGER`. Persistence to the
-  `AuditLog` Prisma model, business-module call sites, and current-actor
-  resolution are all still separate, unscheduled work.
+- **Audit logging — foundation done (Phase 1.2C.8), real call sites since
+  Milestone 13.** `AuditLoggerService` implements `AuditLogger`, bound to
+  `AUDIT_LOGGER`. `auth.service.ts`/`permissions.guard.ts`/`roles.guard.ts`
+  call it today. Persistence to the `AuditLog` Prisma model and
+  current-actor resolution beyond `email` are still separate, unscheduled
+  work.
 - **Security / performance / DB query / background job logging** — all
   just `Logger.info()`/`.warn()` calls with domain-specific `LogMetadata`
   shapes; no interface change needed, since `LogMetadata` is intentionally
   an open `Record<string, unknown>`.
-- **Distributed tracing / metrics** — `LogContext` already has room for a
-  `correlationId`; a tracing-aware `LogTransport` can forward entries to
-  an OpenTelemetry exporter without `Logger`'s contract changing.
-- **Log masking / enrichment** — either a `LogFormatter` concern (mask
-  before rendering) or a decorator/interceptor added later that mutates
-  `LogMetadata` before it reaches `Logger` — no interface change either way.
+- **`tenantId`/`userId` in every log line — done (Phase 10, Module 5).**
+  `RequestContext` gained a `tenantId` field (it existed on `LogContext`
+  from the start but had no matching field here, so it could never
+  actually flow through) and `RequestContextService` gained
+  `updateContext(patch)` — mutates the currently-running store in place,
+  for a middleware/guard running LATER in the same request (not the one
+  that calls `.run()`) to enrich it once it learns something new.
+  `TenantMiddleware` calls it with `tenantId` once tenant resolution
+  completes; `JwtAuthGuard` calls it with `userId` (the authenticated
+  user's `email` — `RequestUser`/the token payload carry no database id,
+  see that guard's own comment) once a token verifies. No `LoggerService`/
+  formatter/transport change was needed — exactly this section's own
+  "no interface change required" pattern.
+- **Log masking / redaction — done (Phase 10, Module 5).**
+  `JsonLogFormatter`'s existing `JSON.stringify` replacer (previously
+  Error-expansion only) now also redacts any key matching a fixed,
+  substring-matched sensitive-key list (`password`, `secret`, `token`,
+  `authorization`, `apikey`, `privatekey`, `creditcard`, `cvv`) to
+  `'[REDACTED]'`, at any nesting depth. Confirmed by this module's own
+  audit that nothing currently logs a request body/header/credential —
+  this closes no ACTIVE exposure, it's a guardrail against a future
+  `logger.info('X', { password })` call site landing unnoticed.
+- **Distributed tracing / third-party error tracking (Sentry etc.) —
+  deliberately still deferred, Phase 10, Module 5.** Audited and
+  confirmed absent (`SENTRY_DSN`/`OTEL_EXPORTER_OTLP_ENDPOINT` sit blank,
+  unread, in `.env.example` — a placeholder, not a promise this module
+  fulfills). Not built because there is no APM/tracing backend configured
+  in any environment this codebase currently deploys to, and this is a
+  single-service monolith — the value a trace span adds over the existing
+  `requestId`/`correlationId` propagation (already real, already
+  verified) is real only once either a second service exists to trace
+  across, or a backend exists to receive spans. Revisit if either changes.
+  Third-party error tracking is additive to (not a replacement for) the
+  already-real `ExceptionLoggingFilter` full-stack-trace-plus-context
+  logging — its dashboard/alerting value overlaps with Module 6
+  (Monitoring)'s scope, tracked there instead of built speculatively
+  against no configured DSN to verify against.
 
 ## Future roadmap
 
