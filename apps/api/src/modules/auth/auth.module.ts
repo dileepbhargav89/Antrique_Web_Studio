@@ -3,6 +3,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthRepository } from './repositories/auth.repository';
 import { SessionRepository } from './repositories/session.repository';
+import { SessionCleanupJob } from './jobs/session-cleanup.job';
+import { SessionCleanupScheduler } from './jobs/session-cleanup.scheduler';
 
 // The first real (non-reference) domain module, built exactly on
 // modules/example-domain/'s template — see
@@ -21,6 +23,17 @@ import { SessionRepository } from './repositories/session.repository';
 // `auth.controller.ts`). See `docs/implementation/decisions.md`.
 @Module({
   controllers: [AuthController],
-  providers: [AuthService, AuthRepository, SessionRepository],
+  providers: [
+    AuthService,
+    AuthRepository,
+    SessionRepository,
+    // Phase 10, Module 7 (Background Jobs) — see jobs/session-cleanup.*'s
+    // own comments. Registered here, not in `JobsModule`: this is a
+    // domain-specific consumer of the generic `JobRunner` infrastructure
+    // (same relationship `SendEmailJob` has to `EmailModule`, not to
+    // `JobsModule` itself).
+    SessionCleanupJob,
+    SessionCleanupScheduler,
+  ],
 })
 export class AuthModule {}

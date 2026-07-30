@@ -11,6 +11,7 @@ function createFakePrisma() {
       create: jest.fn(async () => ({}) as unknown),
       update: jest.fn(async () => ({}) as unknown),
       updateMany: jest.fn(async () => ({ count: 0 }) as unknown),
+      deleteMany: jest.fn(async () => ({ count: 0 }) as unknown),
       count: jest.fn(async () => 0),
     },
   } as unknown as PrismaService;
@@ -141,6 +142,28 @@ describe('SessionRepository', () => {
         revokedAt: null,
         expiresAt: { gt: expect.any(Date) },
       },
+    });
+  });
+
+  // Phase 10, Module 7 (Background Jobs).
+  describe('deleteExpired()', () => {
+    it('deletes only rows past their own expiresAt, regardless of tenant/revocation state', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+
+      await repository.deleteExpired();
+
+      expect(prisma.session.deleteMany).toHaveBeenCalledWith({
+        where: { expiresAt: { lt: expect.any(Date) } },
+      });
+    });
+
+    it('resolves the deleted row count', async () => {
+      const prisma = createFakePrisma();
+      (prisma.session.deleteMany as jest.Mock).mockResolvedValueOnce({ count: 42 });
+      const repository = createRepository(prisma);
+
+      await expect(repository.deleteExpired()).resolves.toBe(42);
     });
   });
 });

@@ -21,6 +21,7 @@ export class MetricsService {
   private readonly httpRequestDurationSeconds: Histogram<'method' | 'route' | 'status_code'>;
   private readonly dbQueryDurationSeconds: Histogram<never>;
   private readonly deadLetterQueueSize: Gauge<never>;
+  private readonly jobExecutionsTotal: Counter<'job_name' | 'status'>;
 
   constructor() {
     // Node process/event-loop/GC metrics (heap, CPU, event-loop lag,
@@ -84,6 +85,21 @@ export class MetricsService {
       help: 'Current number of entries in the in-process dead-letter store',
       registers: [this.registry],
     });
+
+    // Phase 10, Module 7 (Background Jobs) — every `JobRunner.run()`
+    // call's terminal outcome (`succeeded` or `dead_letter` — the only
+    // two `JobResult.status` values `run()` itself ever returns; `failed`
+    // attempts that still have retries left are deliberately NOT counted
+    // here, only the final result of the whole retry sequence). Labeled
+    // by `job_name` — a fixed, small set of real job names (`send-email`,
+    // `session-cleanup`, ...), not a cardinality risk the way HTTP route
+    // labeling could be if done wrong (see that metric's own comment).
+    this.jobExecutionsTotal = new Counter({
+      name: 'jobs_executions_total',
+      help: 'Total number of JobRunner.run() calls, by job name and terminal status',
+      labelNames: ['job_name', 'status'],
+      registers: [this.registry],
+    });
   }
 
   recordHttpRequest(method: string, route: string, statusCode: number, durationMs: number): void {
@@ -98,6 +114,10 @@ export class MetricsService {
 
   setDeadLetterQueueSize(size: number): void {
     this.deadLetterQueueSize.set(size);
+  }
+
+  recordJobExecution(jobName: string, status: 'succeeded' | 'dead_letter'): void {
+    this.jobExecutionsTotal.inc({ job_name: jobName, status });
   }
 
   getMetrics(): Promise<string> {

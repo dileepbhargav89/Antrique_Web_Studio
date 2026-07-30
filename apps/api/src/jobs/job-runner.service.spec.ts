@@ -15,9 +15,14 @@ function createRunner() {
     debug: jest.fn(),
     trace: jest.fn(),
   };
-  const deadLetterStore = new InMemoryDeadLetterStore(new MetricsService());
-  const runner = new JobRunner(logger, deadLetterStore);
-  return { runner, logger, deadLetterStore };
+  // Phase 10, Module 7 (Background Jobs) — a real MetricsService, not a
+  // mock: its own local Registry (see that class's own comment) makes it
+  // cheap and safe to construct fresh per test, and the
+  // "jobs_executions_total" tests below need the real counter.
+  const metrics = new MetricsService();
+  const deadLetterStore = new InMemoryDeadLetterStore(metrics);
+  const runner = new JobRunner(logger, deadLetterStore, metrics);
+  return { runner, logger, deadLetterStore, metrics };
 }
 
 describe('JobRunner', () => {
@@ -102,5 +107,54 @@ describe('JobRunner', () => {
       'Job exhausted retries — moved to dead-letter store',
       expect.objectContaining({ jobName: 'always-fails' }),
     );
+  });
+
+  // Phase 10, Module 7 (Background Jobs).
+  describe('jobs_executions_total metric', () => {
+    it('records a "succeeded" outcome once, on the attempt that actually succeeded', async () => {
+      const { runner, metrics } = createRunner();
+      const execute = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('transient'))
+        .mockResolvedValueOnce(undefined);
+      const job: Job<void> = { name: 'flaky', execute };
+
+      await runner.run(job, undefined, FAST_RETRY_POLICY);
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain('jobs_executions_total{job_name="flaky",status="succeeded"} 1');
+      // The intermediate failed attempt is not itself a terminal
+      // outcome — only run()'s own final result is counted (see
+      // MetricsService's own comment).
+      expect(text).not.toContain('status="dead_letter"');
+    });
+
+    it('records a "dead_letter" outcome once retries are exhausted', async () => {
+      const { runner, metrics } = createRunner();
+      const job: Job<void> = {
+        name: 'always-fails',
+        execute: jest.fn().mockRejectedValue(new Error('nope')),
+      };
+
+      await runner.run(job, undefined, FAST_RETRY_POLICY);
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain(
+        'jobs_executions_total{job_name="always-fails",status="dead_letter"} 1',
+      );
+    });
+
+    it('keeps distinct job names as separate series', async () => {
+      const { runner, metrics } = createRunner();
+      const jobA: Job<void> = { name: 'job-a', execute: jest.fn().mockResolvedValue(undefined) };
+      const jobB: Job<void> = { name: 'job-b', execute: jest.fn().mockResolvedValue(undefined) };
+
+      await runner.run(jobA, undefined, FAST_RETRY_POLICY);
+      await runner.run(jobB, undefined, FAST_RETRY_POLICY);
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain('jobs_executions_total{job_name="job-a",status="succeeded"} 1');
+      expect(text).toContain('jobs_executions_total{job_name="job-b",status="succeeded"} 1');
+    });
   });
 });

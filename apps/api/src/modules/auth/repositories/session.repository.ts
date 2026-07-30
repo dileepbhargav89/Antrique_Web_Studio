@@ -81,4 +81,23 @@ export class SessionRepository extends BaseRepository<PrismaService['session']> 
       where: { id, userId, tenantId, revokedAt: null, expiresAt: { gt: new Date() } },
     });
   }
+
+  // Phase 10, Module 7 (Background Jobs) — closes the gap
+  // `database-schema.md` already named as a future need ("session-
+  // cleanup jobs"): every `Session` row lived forever, revoked or not,
+  // with no delete path anywhere in this repository. Scoped to
+  // genuinely EXPIRED rows only (`expiresAt < now`), never revoked-
+  // but-not-yet-expired ones — a revoked row inside its own expiry
+  // window still has forensic value (confirming a specific token was
+  // the one reused/rotated, per `refresh()`'s own reuse-detection logic)
+  // that hard-deleting it early would destroy for no operational
+  // benefit. The `replacedBySessionId` self-relation is
+  // `onDelete: SetNull` (schema.prisma), so a newer session pointing at
+  // a just-deleted older one is safely nulled out at the DB level, not
+  // orphaned or blocked by an FK violation.
+  deleteExpired(): Promise<number> {
+    return this.delegate
+      .deleteMany({ where: { expiresAt: { lt: new Date() } } })
+      .then((result) => result.count);
+  }
 }

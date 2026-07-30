@@ -113,6 +113,30 @@ describe('MetricsService', () => {
     });
   });
 
+  // Phase 10, Module 7 (Background Jobs).
+  describe('recordJobExecution()', () => {
+    it('increments jobs_executions_total with the given job name and status', async () => {
+      const metrics = new MetricsService();
+
+      metrics.recordJobExecution('send-email', 'succeeded');
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain('jobs_executions_total{job_name="send-email",status="succeeded"} 1');
+    });
+
+    it('keeps succeeded and dead_letter as separate series for the same job', async () => {
+      const metrics = new MetricsService();
+
+      metrics.recordJobExecution('send-email', 'succeeded');
+      metrics.recordJobExecution('send-email', 'succeeded');
+      metrics.recordJobExecution('send-email', 'dead_letter');
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain('jobs_executions_total{job_name="send-email",status="succeeded"} 2');
+      expect(text).toContain('jobs_executions_total{job_name="send-email",status="dead_letter"} 1');
+    });
+  });
+
   it('two independent instances never share state (local Registry, not the prom-client default)', async () => {
     const first = new MetricsService();
     const second = new MetricsService();

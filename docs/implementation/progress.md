@@ -3,7 +3,7 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints), Module 5 (Observability) complete (`docs/architecture/operations.md` §10 — tenantId/userId now flow into every log line, sensitive-field redaction, process-level crash handlers, structured bootstrap/shutdown logs), and Module 6 (Monitoring) complete (`docs/architecture/operations.md` §11 — real GET /metrics via prom-client, token-gated, cardinality-safe route labeling; alerting/dashboards/uptime-monitoring audited and deliberately deferred, no destination to build against) — working through remaining modules sequentially, Module 7 (Background Jobs) next**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints), Module 5 (Observability) complete (`docs/architecture/operations.md` §10 — tenantId/userId now flow into every log line, sensitive-field redaction, process-level crash handlers, structured bootstrap/shutdown logs), Module 6 (Monitoring) complete (`docs/architecture/operations.md` §11 — real GET /metrics via prom-client, token-gated, cardinality-safe route labeling; alerting/dashboards/uptime-monitoring audited and deliberately deferred, no destination to build against), and Module 7 (Background Jobs) complete (`docs/architecture/operations.md` §12 — first real `@Cron()`-scheduled job (SessionCleanupScheduler, every 6h), jobs_executions_total metric; Redis-backed queue audited and deliberately deferred despite Redis being deployed, no worker-process topology exists to justify it) — working through remaining modules sequentially, Module 8 (Caching) next**
 
 **Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
 (Email Assistant) was already fully built, tested, and wired in — module,
@@ -98,6 +98,43 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 7 (Background Jobs) (`apps/api`)** — audited
+  scheduling, real jobs, and the queue backend against what
+  `apps/api/src/jobs/` already provides (in-process `JobRunner`, retry+
+  backoff+dead-letter, real since Milestone 14, three request-triggered
+  fire-and-forget consumers via `SendEmailJob`). Found this genuinely
+  greenfield within its own scope: zero scheduling/cron package, zero
+  scheduled jobs, zero queue backend connected to any code — Redis is
+  actually deployed and healthchecked in `docker-compose.prod.yml` but
+  never dialed by any application code. Added `@nestjs/schedule` +
+  this codebase's first genuinely SCHEDULED job:
+  `SessionCleanupScheduler` (`@Cron`, every 6 hours) calls
+  `JobRunner.run(SessionCleanupJob)`, which calls a new
+  `SessionRepository.deleteExpired()` — closes a gap
+  `database-schema.md` had already named as a future need (`Session`
+  rows never had a delete path; revocation only ever set `revokedAt`,
+  rows accumulated forever). Scoped to genuinely expired rows only,
+  never revoked-but-unexpired ones (still forensically useful for
+  reuse-detection). Also added `jobs_executions_total` (Counter,
+  labeled `job_name`/`status`) inside `JobRunner.run()` itself, so
+  every job execution — scheduled or request-triggered — gets a
+  terminal-outcome metric for free. A real Redis-backed queue (BullMQ
+  etc.) was audited and deliberately NOT built despite Redis already
+  being deployed: current job volume doesn't justify a new
+  worker-process deployment topology that doesn't exist in any
+  documented deployment today. AuditLog retention (blocked on an open
+  DPDP/GDPR policy decision) and real Notification delivery dispatch
+  (needs a separate design decision about delivery channels) were both
+  found as real gaps but explicitly left open, not silently dropped.
+  Live-verified against a real compiled server + real Postgres: a
+  genuinely expired session row was inserted directly, the scheduler
+  was invoked through a real Nest application context (the same
+  `AppModule` DI graph the running server uses), the row was confirmed
+  deleted afterward, and the new metric incremented correctly.
+  `pnpm --filter @antrique/api typecheck`/`lint` clean; full suite 192
+  suites/1179 tests, all passing; `openapi.json` diffed — zero changes
+  (no new HTTP routes). Full writeup: `docs/architecture/operations.md`
+  §12.
 - **Phase 10, Module 6 (Monitoring) (`apps/api`)** — audited metrics
   collection, a scrape endpoint, alerting, uptime/synthetic monitoring,
   and dashboards (Module 5 already closed logging/tracing/correlation/
@@ -4457,37 +4494,42 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. **DONE (2026-07-30):** Phase 10, Modules 1-6 (API Performance,
+1. **DONE (2026-07-31):** Phase 10, Modules 1-7 (API Performance,
    Frontend Performance, Security Hardening, Authentication & Session
-   Security, Observability, Monitoring) — see this file's own newest log
-   entries, `docs/architecture/performance.md` §10, `docs/architecture/
-   frontend.md`'s Module 2 section, `docs/architecture/security.md`
-   §16-§17, and `docs/architecture/operations.md` §10-§11 for full
-   writeups. Module 3 closed the RLS `SET LOCAL` gap flagged in Module 1
-   (see blockers.md's now-resolved entry) and caught/fixed a real
-   blank-app CSP regression via live browser verification. Module 4
-   closed the stateless-refresh-token gap `security.md` §13 had flagged
-   since Milestone 13 (real session-backed rotation, reuse detection,
-   account lockout, concurrent-session limits) and caught/fixed a real
-   stale-placeholder-response bug (`LogoutResponseDto`) via live server
-   testing. Module 5 closed the tenantId/userId-missing-from-logs gap,
-   added redaction and process-level crash handlers, and — while fixing
-   the ripple effect of `JwtAuthGuard`'s new constructor dependency —
-   found and fixed 37 test suites broken by it (a source-level grep
-   cross-reference, not a guess, confirmed the exact count). Module 6
-   added a real `GET /metrics` (Prometheus, `prom-client`), gated by
-   `METRICS_TOKEN`, cardinality-safe route labeling (live-verified: a
-   404 against a random path labels `route="unmatched"`, never the raw
-   path), and deliberately deferred alerting/dashboards/uptime-
-   monitoring — audited first, no destination configured anywhere in
-   this codebase to build real dispatch logic against, no Docker
-   available in this dev sandbox to verify a Grafana/Prometheus stack.
-   User has directed working through Phase 10's remaining 9 modules
-   sequentially (complete one, move to the next, no per-module check-in
-   needed): background jobs, caching, DB reliability, CI/CD, Docker/
-   infra, testing, docs, tech debt, readiness report (full spec from the
-   user, not yet copied into its own doc) — **Module 7 (Background
-   Jobs) is next**.
+   Security, Observability, Monitoring, Background Jobs) — see this
+   file's own newest log entries, `docs/architecture/performance.md`
+   §10, `docs/architecture/frontend.md`'s Module 2 section,
+   `docs/architecture/security.md` §16-§17, and `docs/architecture/
+   operations.md` §10-§12 for full writeups. Module 3 closed the RLS
+   `SET LOCAL` gap flagged in Module 1 (see blockers.md's now-resolved
+   entry) and caught/fixed a real blank-app CSP regression via live
+   browser verification. Module 4 closed the stateless-refresh-token gap
+   `security.md` §13 had flagged since Milestone 13 (real session-backed
+   rotation, reuse detection, account lockout, concurrent-session
+   limits) and caught/fixed a real stale-placeholder-response bug
+   (`LogoutResponseDto`) via live server testing. Module 5 closed the
+   tenantId/userId-missing-from-logs gap, added redaction and
+   process-level crash handlers, and — while fixing the ripple effect of
+   `JwtAuthGuard`'s new constructor dependency — found and fixed 37 test
+   suites broken by it (a source-level grep cross-reference, not a
+   guess, confirmed the exact count). Module 6 added a real
+   `GET /metrics` (Prometheus, `prom-client`), gated by `METRICS_TOKEN`,
+   cardinality-safe route labeling (live-verified: a 404 against a
+   random path labels `route="unmatched"`, never the raw path), and
+   deliberately deferred alerting/dashboards/uptime-monitoring — audited
+   first, no destination configured anywhere in this codebase to build
+   real dispatch logic against, no Docker available in this dev sandbox
+   to verify a Grafana/Prometheus stack. Module 7 added this codebase's
+   first real `@Cron()`-scheduled job (session cleanup, every 6h,
+   live-verified end to end against real Postgres through a real Nest
+   application context) and a `jobs_executions_total` metric, while
+   deliberately deferring a Redis-backed queue despite Redis already
+   being deployed (no worker-process topology exists to justify one
+   yet). User has directed working through Phase 10's remaining 8
+   modules sequentially (complete one, move to the next, no per-module
+   check-in needed): caching, DB reliability, CI/CD, Docker/infra,
+   testing, docs, tech debt, readiness report (full spec from the user,
+   not yet copied into its own doc) — **Module 8 (Caching) is next**.
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

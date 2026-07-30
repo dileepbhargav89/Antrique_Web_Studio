@@ -12,6 +12,7 @@ import {
   delayBeforeNextAttemptMs,
   hasAttemptsRemaining,
 } from './retry-policy';
+import { MetricsService } from '../metrics/metrics.service';
 
 // "Job runner abstraction" (Milestone 14) — in-process, sequential
 // execution of a single Job.execute() call with retry-on-failure and a
@@ -33,6 +34,7 @@ export class JobRunner {
   constructor(
     @Inject(LOGGER) private readonly logger: Logger,
     @Inject(DEAD_LETTER_STORE) private readonly deadLetterStore: DeadLetterStore,
+    private readonly metrics: MetricsService,
   ) {}
 
   async run<T>(
@@ -52,6 +54,7 @@ export class JobRunner {
       try {
         await job.execute(payload, context);
         this.logger.info('Job succeeded', { jobName: job.name, jobId, attempt });
+        this.metrics.recordJobExecution(job.name, 'succeeded');
         return { status: 'succeeded', attempts: attempt };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -75,6 +78,7 @@ export class JobRunner {
             attempts: attempt,
             error: message,
           });
+          this.metrics.recordJobExecution(job.name, 'dead_letter');
           return { status: 'dead_letter', attempts: attempt, error: message };
         }
 

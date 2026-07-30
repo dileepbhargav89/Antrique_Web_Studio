@@ -143,13 +143,17 @@ headers, so an external caller/client can now correlate its own logs
 against this app's without needing log access itself — see `runbook.md`
 §2.
 
-**Background job infrastructure exists but nothing runs on it.**
-`apps/api/src/jobs/` (`JobRunner`, retry/dead-letter abstractions) is
-real, in-process, infrastructure only — zero scheduled jobs, zero queue
-backend (see `jobs/README.md`). Nothing to tune or monitor here yet;
-listed so a future consumer's own operational needs (dead-letter alerting,
-retry-exhaustion monitoring) have an obvious place to extend this
-document when that day comes.
+**Background job infrastructure exists; one real scheduled job runs on
+it as of Phase 10, Module 7** (§12) — `apps/api/src/jobs/` (`JobRunner`,
+retry/dead-letter abstractions) is real, in-process, and now has both
+request-triggered consumers (`SendEmailJob`, Phase 7) and a genuinely
+scheduled one (`SessionCleanupScheduler`, every 6 hours). Still zero
+Redis-backed queue — see `jobs/README.md` and §12 for why. Dead-letter
+monitoring is real too (Module 6's `jobs_dead_letter_queue_size` gauge,
+Module 7's own `jobs_executions_total` counter) — retry-exhaustion
+alerting still has nowhere to send a page (no alerting destination
+configured anywhere, per Module 6's own audit), so the metric exists to
+be queried/dashboarded, not yet to trigger a notification.
 
 **Runtime metadata endpoint.** `GET /runtime` (Admin/Super Admin only) —
 see `runbook.md` §5 for using it to confirm a deployment actually rolled
@@ -328,3 +332,65 @@ read 0, `http_requests_total` correctly distinguished a matched route
 (`route="unmatched"` for a 404), and all three `METRICS_TOKEN`
 authorization paths (missing/wrong/correct) returned the expected status
 codes.
+
+## 12. Phase 10, Module 7 — Background Jobs (2026-07-31)
+
+Audited scheduling, real jobs, and the queue backend against what
+`apps/api/src/jobs/` already provides (in-process `JobRunner`, retry +
+backoff + dead-letter — real since Milestone 14, three request-triggered
+fire-and-forget consumers via `SendEmailJob`). Found this genuinely
+greenfield within its own stated scope: zero scheduling/cron package,
+zero scheduled jobs, zero queue backend connected to any code (Redis is
+deployed and healthchecked in `docker-compose.prod.yml`, but no
+application code dials it — validated-and-deployed-but-unused, one step
+past `SENTRY_DSN`'s validated-but-undeployed). Full account:
+`apps/api/src/modules/auth/jobs/session-cleanup.job.ts`'s own comments
+and `docs/implementation/decisions.md`'s 2026-07-31 Module 7 entry.
+
+- **`SessionCleanupScheduler` is this codebase's first `@Cron()`-driven
+  job** (`@nestjs/schedule`, new dependency) — every 6 hours, calls
+  `JobRunner.run(SessionCleanupJob)`, which calls the new
+  `SessionRepository.deleteExpired()` (`deleteMany({ where: { expiresAt:
+  { lt: now } } })`). Closes a gap `database-schema.md` had already
+  named as a future need: `Session` rows never had a delete path —
+  revocation only ever set `revokedAt` (soft state); rows accumulated
+  forever with no bound. Scoped deliberately to genuinely EXPIRED rows
+  only, never revoked-but-unexpired ones — a revoked row inside its own
+  expiry window still has forensic value for `refresh()`'s own
+  reuse-detection logic (confirming which specific token was replayed).
+- **Live-verified against a real compiled server + real Postgres**: a
+  genuinely expired `Session` row was inserted directly, the scheduler's
+  own `run()` method was invoked through a real Nest application context
+  (not a mock — the same `AppModule` DI graph the running server uses),
+  and the row was confirmed gone from Postgres afterward — plus
+  `jobs_executions_total{job_name="session-cleanup",status="succeeded"}`
+  incremented, confirming Module 6's own job-metrics wiring works for a
+  real, non-email job too.
+- **`jobs_executions_total` (Counter, Module 6's `MetricsService`,
+  labeled `job_name`/`status`) is new** — every `JobRunner.run()` call's
+  terminal outcome (`succeeded` or `dead_letter`), not each individual
+  retry attempt. Closes part of `docs/architecture/operations.md`'s own
+  §8 "retry-exhaustion monitoring" gap for query/dashboard purposes;
+  still nothing downstream to page on (no alerting destination
+  configured anywhere — Module 6's own audit finding, unchanged).
+- **A real Redis-backed queue (BullMQ etc.) was deliberately NOT
+  built**, despite Redis being a real, deployed, healthchecked sibling
+  container in the documented prod topology. Current job volume (one
+  scheduled job, three fire-and-forget request-triggered ones) doesn't
+  justify the operational complexity of a distributed queue + a NEW
+  worker-process deployment topology that doesn't exist today (every
+  documented deployment — local dev, single-host `docker-compose.prod.yml`,
+  target-state managed containers — runs exactly one API process; see
+  `deployment.md` §7). `SessionCleanupScheduler`'s own comment documents
+  why the in-process, per-instance, no-distributed-lock model is
+  sufficient for THIS job specifically (idempotent, no-payload — running
+  it twice, or missing a tick, is harmless). Revisit if job volume grows,
+  a job needs cross-instance exactly-once semantics, or a genuine
+  multi-process worker topology gets built for other reasons first.
+
+### Validation
+
+`pnpm --filter @antrique/api typecheck`/`lint` clean. Full suite: 192
+suites, 1179 tests, all passing. `openapi.json` diffed before/after:
+zero changes (this module added no HTTP routes). Live-verified end to
+end as described above.

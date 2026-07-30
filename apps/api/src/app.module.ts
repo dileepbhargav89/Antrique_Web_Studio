@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule as NestConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule, securityConfig } from './config';
 import { LoggingModule } from './logging';
 import { HttpLoggingMiddleware } from './common/middleware/http-logging.middleware';
@@ -171,10 +172,23 @@ import { FinanceModule } from './modules/finance/finance.module';
     // ahead of JobsModule below, one of its consumers. See
     // metrics/README.md.
     MetricsModule,
-    // Background job infrastructure (Milestone 14) — Job/JobRunner/retry/
-    // dead-letter abstractions only, zero real scheduled jobs, zero Redis/
-    // queue backend. See jobs/README.md.
+    // Background job infrastructure (Milestone 14; scheduling added
+    // Phase 10, Module 7) — Job/JobRunner/retry/dead-letter abstractions,
+    // now with one real scheduled consumer (AuthModule's
+    // SessionCleanupScheduler). Still zero Redis-backed queue — see
+    // jobs/README.md and this module's own writeup in
+    // docs/architecture/operations.md for why.
     JobsModule,
+    // `@nestjs/schedule`'s own module — required once, globally, for any
+    // `@Cron()`/`@Interval()`/`@Timeout()` decorator anywhere in the app
+    // to actually register with its internal `SchedulerRegistry` (Phase
+    // 10, Module 7's first real consumer: AuthModule's
+    // SessionCleanupScheduler). In-process, per-instance timers only —
+    // no distributed lock/exactly-once coordination across multiple
+    // instances, deliberately: see SessionCleanupScheduler's own comment
+    // for why that's the right trade-off for the one job that uses this
+    // today.
+    ScheduleModule.forRoot(),
     // Real transactional email (Phase 7) — @Global() Resend client
     // wrapper + the SendEmailJob every fire-and-forget send goes through
     // JobRunner with. Registered ahead of ContactModule/NewsletterModule

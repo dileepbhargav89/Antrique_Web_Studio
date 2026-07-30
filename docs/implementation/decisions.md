@@ -4971,4 +4971,88 @@ Format:
   `apps/api/src/logging/README.md` (doc-drift fix), `apps/api/.env.example`,
   `docs/architecture/operations.md` §11.
 
+## 2026-07-31 — Phase 10, Module 7 (Background Jobs): a real scheduled session-cleanup job via @nestjs/schedule, Redis-backed queue deliberately deferred despite Redis already being deployed
+
+- **Decision:** added `@nestjs/schedule` and this codebase's first
+  genuinely SCHEDULED job — `SessionCleanupScheduler` (`@Cron(EVERY_6_HOURS)`)
+  calling `JobRunner.run(SessionCleanupJob)`, which calls a new
+  `SessionRepository.deleteExpired()` (`deleteMany({ where: { expiresAt:
+  { lt: now } } })`). Also added `jobs_executions_total` (Counter,
+  `MetricsService`, labeled `job_name`/`status`) inside `JobRunner.run()`
+  itself, so every job execution — scheduled or request-triggered — gets
+  the same terminal-outcome metric for free.
+- **Why session cleanup specifically:** `database-schema.md` had already
+  named "session-cleanup jobs" as a future need when `Session.updatedAt`
+  was added (2026-07-2x), and this module's own audit confirmed the gap
+  was still real: `SessionRepository` had `createSession`/`markRotated`/
+  `revoke`/`revokeAllActiveForUser`/four `find*` methods, but no
+  `delete`/`purge` of any kind — revocation only ever sets `revokedAt`
+  (soft state), so rows accumulate forever with no bound. This was the
+  single most concretely-identified, already-documented gap found across
+  the whole audit (session/audit-log retention, notification dispatch,
+  webhook retry, AI-job polling — none of the others were both real gaps
+  AND safe to build without a separate, larger design decision first —
+  see below).
+- **Why `expiresAt < now` only, never revoked-but-unexpired rows:** a
+  revoked session still inside its own expiry window has real forensic
+  value — `refresh()`'s own reuse-detection logic (Phase 10, Module 4)
+  depends on being able to look up a specific rotated-away session by
+  its refresh-token hash to confirm a replay and trigger the
+  revoke-the-whole-family response. Hard-deleting it early would destroy
+  that evidence for zero operational benefit (an already-revoked row
+  isn't consuming anything the cleanup needs to reclaim).
+- **Live-verified, not just unit-tested:** inserted a genuinely expired
+  `Session` row directly into real Postgres, invoked
+  `SessionCleanupScheduler.run()` through a real Nest application
+  context (the same `AppModule` DI graph the running server uses, not a
+  mock), confirmed the row was gone afterward, and confirmed
+  `jobs_executions_total{job_name="session-cleanup",status="succeeded"}`
+  incremented — proving both the new DB method and Module 6's job-metrics
+  wiring work for a real, non-email job.
+- **Decision — do NOT build a real Redis-backed queue (BullMQ/Bull/
+  Agenda), despite Redis being a real, deployed, healthchecked sibling
+  container in `docker-compose.prod.yml` today (confirmed by this
+  module's own audit — `depends_on: redis: condition: service_healthy`,
+  `REDIS_URL` wired through), a step past every other "audited and
+  deferred" item in Modules 5-6 (which had no backend/destination
+  deployed at all).**
+- **Why, despite Redis already being available:** current real job
+  volume — one scheduled job, three fire-and-forget request-triggered
+  ones — doesn't justify the operational complexity a distributed queue
+  requires: a NEW worker-process deployment topology. Every documented
+  deployment topology (local dev, single-host `docker-compose.prod.yml`,
+  target-state managed containers — `deployment.md` §7) runs exactly one
+  API process; introducing a queue backend without also building and
+  documenting a second, separately-deployed worker process would leave
+  jobs enqueued with nothing consuming them, or would silently make the
+  single API process both the enqueuer and the only possible consumer —
+  neither is a real improvement over what `JobRunner` already does
+  in-process today. `SessionCleanupScheduler`'s own comment documents the
+  narrower, job-specific reasoning: this particular job is idempotent
+  and payload-free, so the in-process, per-instance, no-distributed-lock
+  model `@nestjs/schedule` provides is sufficient — running it twice (a
+  brief multi-instance overlap, or a missed tick) is harmless, it just
+  deletes zero rows the second time. A distributed lock/exactly-once
+  guarantee would be solving a problem this job doesn't have.
+- **AuditLog retention/archival and real Notification delivery
+  dispatch were both found as real gaps but deliberately NOT built
+  this module** — AuditLog retention is blocked on an open DPDP/GDPR
+  policy decision (`docs/implementation/blockers.md`), a legal/product
+  call upstream of any job, not a coding gap to close unilaterally.
+  Notification dispatch (`jobs/README.md`'s own previously-named "likely
+  first consumer" guess) would require deciding what a delivery channel
+  even IS (email? push? in-app?) — a separate, larger design decision
+  than this module's own scope, not a narrow infrastructure gap the way
+  session cleanup was. Both remain open, named explicitly rather than
+  silently dropped.
+- **Affects:** `apps/api/package.json` (new `@nestjs/schedule`
+  dependency), `apps/api/src/modules/auth/{auth.module.ts,repositories/
+  {session.repository.ts,session.repository.spec.ts},jobs/
+  {session-cleanup.job.ts,session-cleanup.job.spec.ts,
+  session-cleanup.scheduler.ts,session-cleanup.scheduler.spec.ts} (all
+  new)}`, `apps/api/src/app.module.ts`,
+  `apps/api/src/metrics/{metrics.service.ts,metrics.service.spec.ts}`,
+  `apps/api/src/jobs/{job-runner.service.ts,job-runner.service.spec.ts,
+  README.md}`, `docs/architecture/operations.md` §8/§12.
+
 <!-- Add new decisions above this line as you build. -->
