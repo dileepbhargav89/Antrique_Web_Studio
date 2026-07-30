@@ -10,9 +10,10 @@ method left uncalled through Phase 1.2D.10 — finally has a caller too:
 `JwtAuthGuard` (`apps/api/src/common/guards/jwt-auth.guard.ts`,
 Milestone 2), the cross-cutting guard that protects any route it's
 attached to, calls it on every request to a guarded endpoint. `POST
-/auth/logout` remains a `{ status: 'not_implemented' }` placeholder.
-This module was originally built (Phase 1.2D.6) so the capability would
-already be real and tested by the time real callers landed.
+/auth/logout` is real as of Phase 10, Module 4 — see
+`apps/api/src/modules/auth/README.md`. This module was originally built
+(Phase 1.2D.6) so the capability would already be real and tested by the
+time real callers landed.
 
 ## What's real here
 

@@ -191,15 +191,24 @@ enum UserStatus {
 /// requiring OR-presence cleanly here); that's an application-layer
 /// concern for whichever future phase builds user provisioning/invites.
 model User {
-  id           String     @id @default(uuid(7)) @db.Uuid
-  tenantId     String     @map("tenant_id") @db.Uuid
-  clientId     String?    @map("client_id") @db.Uuid
-  idpSubject   String?    @unique @map("idp_subject")
-  passwordHash String?    @map("password_hash")
-  email        String
-  firstName    String?    @map("first_name")
-  lastName     String?    @map("last_name")
-  status       UserStatus @default(INVITED)
+  id                  String     @id @default(uuid(7)) @db.Uuid
+  tenantId            String     @map("tenant_id") @db.Uuid
+  clientId            String?    @map("client_id") @db.Uuid
+  idpSubject          String?    @unique @map("idp_subject")
+  passwordHash        String?    @map("password_hash")
+  email               String
+  firstName           String?    @map("first_name")
+  lastName            String?    @map("last_name")
+  status              UserStatus @default(INVITED)
+  // Phase 10, Module 4 (Authentication & Session Security) — account
+  // lockout policy, independent of the IP-based `@Throttle()` on
+  // `POST /auth/login` (Module 3): this catches a distributed/low-and-
+  // slow attack against ONE account from many IPs, which IP throttling
+  // alone can't. Reset to 0 on any successful login; `lockedUntil` set
+  // once `failedLoginAttempts` crosses `MAX_FAILED_LOGIN_ATTEMPTS`
+  // (auth.constant.ts).
+  failedLoginAttempts Int        @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?  @map("locked_until")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")

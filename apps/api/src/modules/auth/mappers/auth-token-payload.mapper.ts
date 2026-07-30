@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AuthTokenPayload } from '../types/auth-token-payload.type';
 
 // Pure conversion: an authenticated user's email -> the payload
@@ -12,7 +13,7 @@ import { AuthTokenPayload } from '../types/auth-token-payload.type';
 // what the client happened to type. Never accepts a password parameter —
 // never sign a credential into a token.
 export function buildAuthTokenPayload(email: string): AuthTokenPayload {
-  return { email };
+  return { email, jti: randomUUID() };
 }
 
 // Pure conversion: a decoded, already-verified refresh token -> the fresh
@@ -26,12 +27,16 @@ export function buildAuthTokenPayload(email: string): AuthTokenPayload {
 // straight back into `signAccessToken()`/`signRefreshToken()` would make
 // `jsonwebtoken` throw ("Bad options.expiresIn option the payload
 // already has an exp property"), since the two token methods separately
-// pass `expiresIn`. Rebuilding a clean `{ email }` object here — the
-// same shape `buildAuthTokenPayload()` builds from the login DTO — is
-// what makes reissuing tokens safe. No `jti`/nonce/timestamp is added
-// here or anywhere else in this module: the payload stays exactly the
-// minimal shape `AuthTokenPayload` declares, deterministic same-second
-// signing and all — see auth.service.ts's refresh() comment.
+// pass `expiresIn`. Rebuilding a clean object here — the same shape
+// `buildAuthTokenPayload()` builds from the login DTO — is what makes
+// reissuing tokens safe.
+//
+// A fresh `jti` (Phase 10, Module 4), not `decoded.jti` carried forward:
+// this IS a new token issuance (that's the whole point of rotation), so
+// it needs its own identity — both to avoid the same-second collision
+// this comment used to describe as an accepted gap, and because
+// `Session.refreshTokenHash` needs each rotation's refresh token to hash
+// to a genuinely distinct value.
 export function reissueAuthTokenPayload(decoded: AuthTokenPayload): AuthTokenPayload {
-  return { email: decoded.email };
+  return { email: decoded.email, jti: randomUUID() };
 }

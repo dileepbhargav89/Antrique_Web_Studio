@@ -535,12 +535,10 @@ layer independent of the library version.
 
 Explicitly deferred, with reasoning, rather than silently left unstated:
 
-- **No refresh-token rotation/reuse detection.** `refresh()` verifies and
-  reissues but does not track token families or revoke on reuse. Building
-  this means new session-state tracking — genuinely new business logic and
-  schema, outside this milestone's "no domain-model redesign" constraint.
-  Real risk: a leaked refresh token remains valid until its own TTL expires
-  (30 days, per config), with no server-side revocation path.
+- ~~**No refresh-token rotation/reuse detection.**~~ **Closed by Phase 10,
+  Module 4** (§17) — `refresh()` now looks up a persisted `Session` row,
+  rotates on every call, and revokes the whole session family on a
+  detected replay.
 - **No CSRF protection.** Not applicable today (Bearer-token-only API, no
   cookie-based session anywhere), but would become a real gap the moment any
   future feature introduces cookie-based auth — flagged so that feature
@@ -804,3 +802,141 @@ RLS wiring (compiled API build, real Postgres, 30-request stress test),
 CSP fix (real browser, marketing + portal pages, zero console
 violations), file-upload MIME fix (real multipart upload against real
 S3-compatible storage, verified served `Content-Type`).
+
+## 17. Phase 10, Module 4 — Authentication & Session Security (2026-07-30)
+
+Audited the full module brief (session management, refresh-token
+rotation/reuse detection, account lockout, concurrent-session limits,
+MFA, password policy, JWT hardening) against the actual `AuthService`/
+`AuthController` code and the previously-unused `Session` model in
+`schema.prisma` (doc-commented "rotating refresh, reuse detection" since
+it was first added, never wired up).
+
+### 17.1 Refresh-token rotation + reuse detection — closed
+
+**The gap:** `refresh()` was stateless — it verified a submitted refresh
+token's signature/expiry and reissued a fresh pair, but never checked
+whether that specific token had already been used. A leaked refresh
+token stayed valid for its full 30-day TTL with no way to invalidate it
+early, and the same token could be replayed indefinitely.
+
+**The fix:** every `login()`/`refresh()` call now persists a `Session`
+row (`SessionRepository`, new) keyed by the SHA-256 hash of the issued
+refresh token (never the raw token — same "never store the credential
+itself" reasoning as password hashing). `refresh()` looks the presented
+token up by hash:
+- No matching session → plain `401` (unknown/never-issued token).
+- Session found but `revokedAt` is already set → the token has already
+  been rotated away and is being replayed. Treated as a theft signal:
+  `401`, AND every other active session for that user is revoked
+  (`revokeAllActiveForUser()`) — a blunt "kill the whole family" rather
+  than trying to walk just the specific rotation chain, the safer
+  default when one token in a user's history is confirmed compromised.
+- Session found, active, but past its own `expiresAt` → `401`.
+- Otherwise: the presented session is marked rotated
+  (`revokedAt` + `replacedBySessionId`) and a new session is created for
+  the freshly-signed pair.
+
+`logout()` is now real too — revokes the session matching the given
+`LogoutRequestDto.refreshToken` (optional, for backward compatibility
+with the previous no-body contract; a no-op success without one,
+deliberately idempotent for an already-revoked/invalid token). New
+`GET /auth/sessions`/`DELETE /auth/sessions/:id` (JWT-guarded, scoped to
+the caller's own sessions only) give users real device/session
+management ("sign out this device").
+
+### 17.2 Account lockout — closed
+
+**The gap:** no defense against a sustained password-guessing attack
+beyond the existing per-IP login throttle (`@Throttle`, 5/min, Module
+3) — an attacker distributing attempts across IPs (or simply waiting
+out the throttle window) could brute-force a weak password
+indefinitely.
+
+**The fix:** `User.failedLoginAttempts`/`lockedUntil` (new columns,
+migration `20260730180000_add_account_lockout`). A wrong password
+increments the counter; hitting `MAX_FAILED_LOGIN_ATTEMPTS` (5) sets
+`lockedUntil` 15 minutes out (`ACCOUNT_LOCKOUT_DURATION_MS`). A locked
+account is rejected before any password comparison runs (same
+short-circuit-before-`compare()` shape the existing "no such
+user"/"no password hash" paths already used). A successful login resets
+both fields. This is a second, independent layer from the per-IP
+throttle — one is per-account, the other per-client — deliberately
+redundant, not a replacement for either.
+
+### 17.3 Concurrent session limit — closed
+
+A user logging in for the 6th simultaneous time now evicts their oldest
+still-active session (`MAX_CONCURRENT_SESSIONS` = 5,
+`findOldestActiveForUser()` + `revoke()`) rather than accumulating
+sessions without bound.
+
+### 17.4 JWT `jti` — closed
+
+Both `buildAuthTokenPayload()`/`reissueAuthTokenPayload()`
+(`mappers/auth-token-payload.mapper.ts`) now mint a fresh `randomUUID()`
+`jti` claim on every call — closes the token-collision risk those
+functions' own comments had flagged since Phase 1.2D.9 (two tokens
+signed for the same email in the same second would otherwise be
+byte-identical once `iat`/`exp` also collide at one-second resolution).
+Not used as a revocation-list key anywhere — revocation is handled at
+the session layer (§17.1), not via a `jti` blacklist.
+
+### 17.5 MFA and password policy — audited, out of scope, documented
+
+**MFA:** no real implementation exists. A documented no-op extension
+point (`mfa-verification.util.ts`'s `verifyMfaIfEnrolled()`) is called
+from `login()` at the point a real check would run, so wiring a real
+provider later is additive (no `login()` restructuring needed) rather
+than requiring this module's control flow to change again.
+
+**Password policy:** N/A, not deferred — there is still no registration
+or password-reset/change flow anywhere in the codebase (confirmed by
+grep; the only place a password is ever set is `prisma/seed.ts`, a
+dev-only script). A password policy has nothing to attach to yet; this
+is tracked as a prerequisite for whichever future module adds
+registration, not a Module 4 gap.
+
+### Live verification
+
+Compiled build, real local Postgres, real seeded users
+(`admin@antrique.dev`, `customer@antrique.dev`). Full flow exercised
+end to end over real HTTP:
+1. Login → real access + refresh tokens; `GET /auth/sessions` shows the
+   new session.
+2. Refresh → new pair issued; old session shows `revokedAt` set, new
+   session created; `GET /auth/sessions` still shows exactly one active
+   session (the new one).
+3. Replay the pre-rotation refresh token → `401`.
+4. Replay the post-rotation (still technically valid) refresh token →
+   also `401` — confirms reuse detection revoked the *entire* family,
+   not just the specifically-replayed token.
+5. Fresh login → logout with the refresh token → `{}` (previously
+   returned a stale `{ status: 'not_implemented' }` placeholder,
+   corrected as part of this module — a real bug caught only by live
+   testing, since every automated check treats an unchanged response
+   *shape* as passing).
+6. Replay the logged-out refresh token → `401`.
+7. Five wrong-password attempts against a seeded account, confirmed via
+   direct DB read that `failedLoginAttempts` reached 5 and `lockedUntil`
+   was set ~15 minutes out; a subsequent attempt with the *correct*
+   password still `401`s while locked. (The per-IP login throttle,
+   5/min, is stricter than the 5-failure lockout threshold, so
+   reproducing this over HTTP required spacing requests across two
+   throttle windows — both defenses are independently confirmed
+   working, not in conflict.)
+
+### Validation
+
+`pnpm --filter @antrique/api typecheck`/`lint` clean. Full test suite:
+188 suites, 1121 tests, all passing (auth module alone: 11 suites, 111
+tests — `auth.service.spec.ts`/`auth.controller.spec.ts` fully
+rewritten for the new `AuthService`/`AuthController` shapes,
+`session.repository.spec.ts` new, `auth.repository.spec.ts`/
+`auth-token-payload.mapper.spec.ts` extended). `openapi.json`
+regenerated and diffed against the pre-change version: purely additive
+(two new endpoints/schemas, description-text updates on existing
+routes) — no removed or changed fields, consistent with `CLAUDE.md`'s
+frozen-contract rule. `apps/web`'s logout route handler
+(`app/api/auth/logout/route.ts`) updated to pass the session cookie's
+`refreshToken` through to the now-real `POST /auth/logout`.

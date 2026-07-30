@@ -3,7 +3,7 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), and Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1) — working through remaining modules sequentially, Module 4 (Authentication & Session Security) next**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), and Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints) — working through remaining modules sequentially, Module 5 (Observability) next**
 
 **Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
 (Email Assistant) was already fully built, tested, and wired in — module,
@@ -98,6 +98,45 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 4 (Authentication & Session Security) (`apps/api` +
+  `apps/web`)** — closed the largest remaining gap `security.md` §13 had
+  flagged since Milestone 13: refresh tokens were stateless (no
+  revocation path for a leaked token, no reuse detection). Wired up the
+  previously-unused `Session` model (new `SessionRepository`) — `login()`/
+  `refresh()` now persist a session keyed by the refresh token's SHA-256
+  hash; `refresh()` rotates on every call (old session revoked + linked
+  to the new one via `replacedBySessionId`) and detects reuse (replaying
+  an already-rotated token 401s AND revokes every other active session
+  for that user — a theft response). Added account lockout
+  (`User.failedLoginAttempts`/`lockedUntil`, new migration — 5 failed
+  attempts locks for 15 minutes, independent of the existing per-IP
+  login throttle), a concurrent-session limit (6th simultaneous login
+  evicts the oldest), a random `jti` on every signed token (closes a
+  collision risk flagged since Phase 1.2D.9), real `logout()` (was a
+  placeholder), and new `GET /auth/sessions`/`DELETE /auth/sessions/:id`
+  endpoints. Rewrote the module's full test suite for the new
+  `AuthService`/`AuthController` shapes (`auth.service.spec.ts`/
+  `auth.controller.spec.ts`), added `session.repository.spec.ts`,
+  extended `auth.repository.spec.ts`/`auth-token-payload.mapper.spec.ts`.
+  **A real bug caught only by live testing**: `LogoutResponseDto` still
+  returned the old `{ status: 'not_implemented' }` placeholder shape —
+  every automated check passed with it in place; only calling the real
+  compiled server's `/auth/logout` surfaced that the response was
+  actively lying about what the endpoint now does. Fixed to a plain
+  `{}`. Live-verified end to end against a compiled build + real
+  Postgres + real seeded users: login → refresh rotation (confirmed via
+  `/auth/sessions`) → replay pre-rotation token (401) → replay
+  post-rotation token (401, confirming family-wide revocation, not just
+  the one replayed token) → fresh login → logout → replay logged-out
+  token (401) → 5 wrong passwords against a seeded account (confirmed
+  via direct DB read: locked ~15 min) → correct password still 401s
+  while locked. `apps/web`'s logout route handler now passes the session
+  cookie's `refreshToken` through to the real endpoint. `openapi.json`
+  regenerated and diffed: purely additive (2 new endpoints, description
+  text only on existing routes) — frozen-contract rule intact. `pnpm
+  --filter @antrique/api typecheck`/`lint` clean; full suite 188 suites/
+  1121 tests, all passing. Full writeup: `docs/architecture/security.md`
+  §17.
 - **Phase 10, Module 3 (Security Hardening) (`apps/api` + `apps/web`)** —
   closed the RLS `SET LOCAL` gap flagged in Module 1: `PrismaService`
   now issues `set_config('app.current_tenant_id', ...)` per request via
@@ -4346,20 +4385,25 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
 - Phase 1.1A: apps/api/prisma/schema.prisma — see docs/architecture/database-schema.md
 
 ## Next 3 tasks
-1. **DONE (2026-07-30):** Phase 10, Modules 1-3 (API Performance,
-   Frontend Performance, Security Hardening) — see this file's own
-   newest log entries, `docs/architecture/performance.md` §10,
-   `docs/architecture/frontend.md`'s Module 2 section, and
-   `docs/architecture/security.md` §16 for full writeups. Module 3
-   closed the RLS `SET LOCAL` gap flagged in Module 1 (see blockers.md's
-   now-resolved entry) and caught/fixed a real blank-app CSP regression
-   via live browser verification. User has directed working through
-   Phase 10's remaining 12 modules sequentially (complete one, move to
-   the next, no per-module check-in needed): auth/session security,
+1. **DONE (2026-07-30):** Phase 10, Modules 1-4 (API Performance,
+   Frontend Performance, Security Hardening, Authentication & Session
+   Security) — see this file's own newest log entries,
+   `docs/architecture/performance.md` §10, `docs/architecture/
+   frontend.md`'s Module 2 section, and `docs/architecture/security.md`
+   §16-§17 for full writeups. Module 3 closed the RLS `SET LOCAL` gap
+   flagged in Module 1 (see blockers.md's now-resolved entry) and
+   caught/fixed a real blank-app CSP regression via live browser
+   verification. Module 4 closed the stateless-refresh-token gap
+   `security.md` §13 had flagged since Milestone 13 (real session-backed
+   rotation, reuse detection, account lockout, concurrent-session
+   limits) and caught/fixed a real stale-placeholder-response bug
+   (`LogoutResponseDto`) via live server testing. User has directed
+   working through Phase 10's remaining 11 modules sequentially
+   (complete one, move to the next, no per-module check-in needed):
    observability, monitoring, background jobs, caching, DB reliability,
    CI/CD, Docker/infra, testing, docs, tech debt, readiness report (full
-   spec from the user, not yet copied into its own doc) — **Module 4
-   (Authentication & Session Security) is next**.
+   spec from the user, not yet copied into its own doc) — **Module 5
+   (Observability) is next**.
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

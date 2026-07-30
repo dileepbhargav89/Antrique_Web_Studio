@@ -21,3 +21,20 @@ export const LOGIN_THROTTLE_TTL_MS = 60_000;
 // once per session.
 export const REFRESH_THROTTLE_LIMIT = 10;
 export const REFRESH_THROTTLE_TTL_MS = 60_000;
+
+// Phase 10, Module 4 (Authentication & Session Security) — account
+// lockout policy (User.failedLoginAttempts/lockedUntil). Fixed, not
+// env-configurable, same "defensible fixed security policy" reasoning
+// as the throttle constants above — independent of the IP-based login
+// throttle: this catches a distributed/low-and-slow attack against ONE
+// account from many IPs.
+export const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+export const ACCOUNT_LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+
+// Concurrent session limit — on a successful login once this many
+// active (non-revoked, non-expired) sessions already exist for the
+// user, the OLDEST is evicted (revoked) before the new one is created.
+// 5 is generous enough for a real user's normal footprint (desktop +
+// laptop + phone + a couple of browser profiles) while still bounding
+// how many stolen-and-never-logged-out sessions can accumulate.
+export const MAX_CONCURRENT_SESSIONS = 5;

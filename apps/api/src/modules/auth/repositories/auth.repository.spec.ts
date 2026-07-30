@@ -84,4 +84,47 @@ describe('AuthRepository', () => {
       );
     });
   });
+
+  // Phase 10, Module 4 (Authentication & Session Security) — account
+  // lockout bookkeeping.
+  describe('recordFailedLogin()', () => {
+    it('increments failedLoginAttempts and leaves lockedUntil untouched when no lockUntil is given', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+
+      await repository.recordFailedLogin('u1', 2, null);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { failedLoginAttempts: 3 },
+      });
+    });
+
+    it('sets lockedUntil when a lock date is given (threshold reached)', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+      const lockUntil = new Date('2026-01-01T00:00:00.000Z');
+
+      await repository.recordFailedLogin('u1', 4, lockUntil);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { failedLoginAttempts: 5, lockedUntil: lockUntil },
+      });
+    });
+  });
+
+  describe('recordSuccessfulLogin()', () => {
+    it('resets failedLoginAttempts and lockedUntil back to their defaults', async () => {
+      const prisma = createFakePrisma();
+      const repository = createRepository(prisma);
+
+      await repository.recordSuccessfulLogin('u1');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    });
+  });
 });

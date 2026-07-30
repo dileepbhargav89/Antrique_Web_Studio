@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthRepository } from './repositories/auth.repository';
+import { SessionRepository } from './repositories/session.repository';
 
 // The first real (non-reference) domain module, built exactly on
 // modules/example-domain/'s template — see
@@ -20,6 +21,6 @@ import { AuthRepository } from './repositories/auth.repository';
 // `auth.controller.ts`). See `docs/implementation/decisions.md`.
 @Module({
   controllers: [AuthController],
-  providers: [AuthService, AuthRepository],
+  providers: [AuthService, AuthRepository, SessionRepository],
 })
 export class AuthModule {}

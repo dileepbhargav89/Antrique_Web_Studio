@@ -1,7 +1,28 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
-import { ApiValidationError } from '../../common/decorators/api-standard-responses.decorator';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
+import {
+  ApiNotFoundError,
+  ApiStandardAuthErrors,
+  ApiValidationError,
+} from '../../common/decorators/api-standard-responses.decorator';
 import {
   AUTH_ROUTE,
   LOGIN_THROTTLE_LIMIT,
@@ -14,32 +35,36 @@ import { LoginRequestDto } from './dto/login-request.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
 import { RefreshRequestDto } from './dto/refresh-request.dto';
 import { RefreshResponseDto } from './dto/refresh-response.dto';
+import { LogoutRequestDto } from './dto/logout-request.dto';
 import { LogoutResponseDto } from './dto/logout-response.dto';
+import { SessionResponseDto } from './dto/session-response.dto';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { TenantContext } from '../../types/tenant-context.type';
+import { RequestMetaDecorator } from '../../common/decorators/request-meta.decorator';
+import { RequestMeta } from '../../types/request-meta.type';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequestUser } from '../../types/request-user.type';
 
-// Thin controller — route + delegate only, all real work (however
-// little exists today) lives in AuthService. See auth.service.ts's
-// header comment for what this phase does and does not implement.
-// @HttpCode(200) on every route: Nest's default for @Post() is 201
+// Thin controller — route + delegate only, all real work lives in
+// AuthService. See auth.service.ts's header comment for what each
+// route does.
+// @HttpCode(200) on every POST: Nest's default for @Post() is 201
 // Created, correct for routes that create a resource — none of these
-// do (login/refresh don't create anything the client models as a
-// resource; logout destroys, if anything), so the default would be
-// semantically wrong even for a placeholder response.
+// do in the sense a client models as a resource (login/refresh don't;
+// logout revokes one).
 //
-// `login()` reads `@Tenant()` (Milestone 4 — Organization &
-// Multi-Tenant Foundation), the request's already-resolved
-// `TenantContext` (`TenantMiddleware` runs for every request, guarded or
-// not, so it's always populated by the time this controller runs) — not
-// `@Req()`, matching this codebase's established "decorator over raw
-// request access" convention (`@CurrentUser()`). `refresh()`/`logout()`
-// deliberately do NOT take a tenant: `refresh()` never looks up a user
-// by email (it only verifies/reissues a JWT), and `logout()` is still a
-// placeholder — neither needs tenant scoping, and this milestone's own
-// brief scopes the AuthRepository change to "login lookup" specifically.
-// No @ApiBearerAuth() — every route on this controller is deliberately
-// unauthenticated (see this class's own header comment); the Swagger
-// "Authorize" button has nothing to apply here.
+// `login()`/`refresh()`/`logout()` read `@Tenant()` — the request's
+// already-resolved `TenantContext` (`TenantMiddleware` runs for every
+// request, guarded or not) — not `@Req()`, matching this codebase's
+// established "decorator over raw request access" convention
+// (`@CurrentUser()`). All three now need it (Phase 10, Module 4):
+// `Session` rows are tenant-scoped, per CLAUDE.md's non-negotiable
+// "tenant scope on EVERY query" rule.
+// `GET /auth/sessions`/`DELETE /auth/sessions/:id` are the one
+// authenticated surface on this controller (JwtAuthGuard) — listing/
+// revoking a session requires knowing WHO is asking, unlike login/
+// refresh/logout which authenticate via the credential/token itself.
 @ApiTags('Auth')
 @Controller(AUTH_ROUTE)
 export class AuthController {
@@ -62,15 +87,21 @@ export class AuthController {
     description:
       'Issues a short-lived access token and a longer-lived refresh token for the resolved tenant. ' +
       `Rate-limited to ${LOGIN_THROTTLE_LIMIT} attempts per client per minute, independent of the ` +
-      'app-wide rate limit.',
+      'app-wide rate limit. An account is temporarily locked after too many failed attempts, ' +
+      'independent of that IP-based limit.',
   })
   @ApiOkResponse({ type: LoginResponseDto })
   @ApiUnauthorizedResponse({
-    description: 'Email/password combination is not valid for this tenant.',
+    description:
+      'Email/password combination is not valid for this tenant, or the account is locked.',
   })
   @ApiValidationError()
-  login(@Body() dto: LoginRequestDto, @Tenant() tenant: TenantContext): Promise<LoginResponseDto> {
-    return this.authService.login(dto, tenant);
+  login(
+    @Body() dto: LoginRequestDto,
+    @Tenant() tenant: TenantContext,
+    @RequestMetaDecorator() requestMeta: RequestMeta,
+  ): Promise<LoginResponseDto> {
+    return this.authService.login(dto, tenant, requestMeta);
   }
 
   // Phase 10, Module 3 (Security Hardening) — same reasoning as login's
@@ -82,24 +113,69 @@ export class AuthController {
   @Throttle({ default: { limit: REFRESH_THROTTLE_LIMIT, ttl: REFRESH_THROTTLE_TTL_MS } })
   @ApiOperation({
     summary: 'Exchange a refresh token for a new access + refresh token pair',
-    description: `Rate-limited to ${REFRESH_THROTTLE_LIMIT} attempts per client per minute.`,
+    description:
+      `Rate-limited to ${REFRESH_THROTTLE_LIMIT} attempts per client per minute. Rotates the ` +
+      'refresh token (Phase 10, Module 4) — the submitted token is invalidated and cannot be ' +
+      'reused; reuse is treated as a theft signal and revokes every active session for the account.',
   })
   @ApiOkResponse({ type: RefreshResponseDto })
   @ApiUnauthorizedResponse({
-    description: 'Refresh token is missing, malformed, expired, or invalid.',
+    description: 'Refresh token is missing, malformed, expired, already used, or invalid.',
   })
   @ApiValidationError()
-  refresh(@Body() dto: RefreshRequestDto): Promise<RefreshResponseDto> {
-    return this.authService.refresh(dto);
+  refresh(
+    @Body() dto: RefreshRequestDto,
+    @Tenant() tenant: TenantContext,
+    @RequestMetaDecorator() requestMeta: RequestMeta,
+  ): Promise<RefreshResponseDto> {
+    return this.authService.refresh(dto, tenant, requestMeta);
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Log out (placeholder — no server-side session/token state exists to invalidate yet)',
+    summary: 'Log out',
+    description:
+      'Revokes the session the submitted refreshToken maps to (Phase 10, Module 4). refreshToken ' +
+      'is optional for backward compatibility; without one this is a no-op that still succeeds.',
   })
   @ApiOkResponse({ type: LogoutResponseDto })
-  logout(): Promise<LogoutResponseDto> {
-    return this.authService.logout();
+  logout(
+    @Body() dto: LogoutRequestDto,
+    @Tenant() tenant: TenantContext,
+  ): Promise<LogoutResponseDto> {
+    return this.authService.logout(dto, tenant);
+  }
+
+  // Phase 10, Module 4 (Authentication & Session Security) — "Device/
+  // session management." Lists the CALLER's own active sessions only.
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: "List the current user's own active sessions" })
+  @ApiOkResponse({ type: SessionResponseDto, isArray: true })
+  @ApiStandardAuthErrors()
+  listSessions(
+    @CurrentUser() user: RequestUser,
+    @Tenant() tenant: TenantContext,
+  ): Promise<SessionResponseDto[]> {
+    return this.authService.listSessions(user.email, tenant);
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Revoke one of the current user\'s own sessions ("sign out this device")',
+  })
+  @ApiStandardAuthErrors()
+  @ApiNotFoundError('session')
+  async revokeSession(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: RequestUser,
+    @Tenant() tenant: TenantContext,
+  ): Promise<void> {
+    await this.authService.revokeSession(id, user.email, tenant);
   }
 }

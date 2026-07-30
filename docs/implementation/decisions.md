@@ -4691,4 +4691,92 @@ Format:
   (new), `docs/architecture/security.md` §16, `docs/implementation/
   blockers.md` (RLS entry resolved).
 
+## 2026-07-30 — Phase 10, Module 4 (Authentication & Session Security): real session-backed rotation/reuse-detection/lockout, replacing a stateless refresh flow
+
+- **Decision:** wired up `Session` (existed in `schema.prisma` since
+  early on, doc-commented "rotating refresh, reuse detection," never
+  actually read or written) via a new `SessionRepository`. `login()`/
+  `refresh()` now create a `Session` row keyed by the SHA-256 hash of
+  the issued refresh token; `refresh()` looks the presented token up by
+  hash rather than only verifying its JWT signature/expiry. Added
+  `User.failedLoginAttempts`/`lockedUntil` (migration
+  `20260730180000_add_account_lockout`) for account lockout (5 failed
+  attempts locks for 15 minutes), a concurrent-session limit (6th login
+  evicts the oldest active session), and a random `jti` claim on every
+  signed token (closes a token-collision risk the mapper functions'
+  own comments had flagged since Phase 1.2D.9). `logout()` and two new
+  endpoints (`GET /auth/sessions`, `DELETE /auth/sessions/:id`) went
+  from placeholder/nonexistent to real, session-backed operations.
+- **Why:** this was the single largest concrete gap `docs/architecture/
+  security.md` §13 (Remaining Accepted Risks) had flagged since
+  Milestone 13 — a leaked refresh token had no server-side revocation
+  path and stayed valid for its full 30-day TTL, with no account-level
+  defense against sustained password guessing beyond the existing
+  per-IP login throttle (Module 3). The `Session` model already existed
+  specifically for this; nothing about this decision required a schema
+  redesign, only wiring up what was already there.
+- **A real bug caught only by live testing, not by any automated
+  check:** `LogoutResponseDto` still returned the original `{ status:
+  'not_implemented' }` placeholder shape from when logout genuinely did
+  nothing — typecheck/lint/the full rewritten test suite all passed
+  with it in place, because nothing in the test suite asserted against
+  the literal response shape beyond what the (also-updated) spec
+  expected. Only calling the real compiled server end to end
+  (`curl .../auth/logout`) surfaced that the response was actively
+  lying about what the endpoint now does. Fixed to a plain `{}` success
+  acknowledgement. Same class of gap as Module 3's CSP near-miss:
+  automated checks verify internal consistency, not whether the
+  observable behavior matches reality.
+- **Design choice — reuse detection revokes the whole session family,
+  not just the replayed token:** when a refresh token that's already
+  been rotated away gets replayed, every other active session for that
+  user is revoked (`revokeAllActiveForUser()`), not only the one
+  matching the replayed token. Live-verified: after a login → refresh →
+  replay-the-pre-rotation-token sequence, the POST-rotation token (which
+  was never itself replayed, and was still technically unexpired) also
+  stopped working — confirming the family-wide revocation, not just a
+  per-token rejection.
+- **Design choice — reuse detection and the per-IP login throttle
+  layer independently, not in place of each other:** the account
+  lockout threshold (5 failed attempts) and the existing per-IP login
+  throttle (5 requests/minute, Module 3) happen to be numerically equal
+  but protect different things — one is per-account (defends a specific
+  user even if attempts come from many IPs), the other per-client
+  (defends against one IP hammering many accounts). Live-verifying
+  lockout in isolation required spacing requests across throttle
+  windows since the throttle is stricter in a single-IP test; both
+  layers were confirmed independently working, not redundant.
+- **Alternatives considered:** a `jti`-based access-token blacklist for
+  instant revocation of still-valid access tokens (rejected — the
+  access-token TTL is already short, 15 minutes, so the exposure window
+  a blacklist would close is small relative to the Redis/cache
+  infrastructure it would require; documented as an accepted remaining
+  gap in `security.md` §17.4, not silently dropped); MFA implementation
+  (rejected — no MFA enrollment flow exists yet to check against; added
+  a documented no-op extension point, `mfa-verification.util.ts`,
+  instead, so `login()`'s control flow doesn't need to change again once
+  a real provider lands); password policy validation (rejected as N/A,
+  not deferred — there is still no registration/password-change flow
+  anywhere in the codebase for a policy to attach to).
+- **Live-verified** end to end against a compiled build + real local
+  Postgres + real seeded users: login → refresh (rotation, confirmed via
+  `GET /auth/sessions` showing exactly one active session before and
+  after) → replay pre-rotation token (401) → replay post-rotation token
+  (401, family-wide revocation confirmed) → fresh login → logout → replay
+  logged-out token (401) → five wrong-password attempts against a seeded
+  account (confirmed via direct DB read: `failedLoginAttempts` reached
+  5, `lockedUntil` set ~15 minutes out) → correct password while locked
+  still 401s. Full details in `docs/architecture/security.md` §17.
+- **Affects:** `apps/api/prisma/{schema.prisma,migrations/
+  20260730180000_add_account_lockout/}`, `apps/api/src/modules/auth/
+  {auth.service.ts,auth.controller.ts,auth.module.ts,mfa-verification.util.ts
+  (new),types/auth-token-payload.type.ts,mappers/auth-token-payload.mapper.ts,
+  constants/auth.constant.ts,repositories/{auth.repository.ts,
+  session.repository.ts (new)},dto/{logout-request.dto.ts (new),
+  logout-response.dto.ts,session-response.dto.ts (new)}}`,
+  `apps/api/src/{types/request-meta.type.ts (new),common/decorators/
+  request-meta.decorator.ts (new)}`, every `auth/**/*.spec.ts` (rewritten/
+  extended), `apps/web/src/app/api/auth/logout/route.ts`,
+  `docs/architecture/security.md` §13/§17.
+
 <!-- Add new decisions above this line as you build. -->

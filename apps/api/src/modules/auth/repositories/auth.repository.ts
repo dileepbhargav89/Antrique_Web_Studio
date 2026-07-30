@@ -46,4 +46,26 @@ export class AuthRepository extends BaseRepository<PrismaService['user']> {
       },
     });
   }
+
+  // Phase 10, Module 4 (Authentication & Session Security) — account
+  // lockout policy. `recordFailedLogin`/`recordSuccessfulLogin` are the
+  // two call sites `AuthService.login()` uses; both take the CURRENT
+  // attempt count rather than re-reading it, since the caller already
+  // has the just-fetched `user` row in hand — avoids a redundant query.
+  recordFailedLogin(userId: string, currentAttempts: number, lockUntil: Date | null) {
+    return this.delegate.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts: currentAttempts + 1,
+        ...(lockUntil ? { lockedUntil: lockUntil } : {}),
+      },
+    });
+  }
+
+  recordSuccessfulLogin(userId: string) {
+    return this.delegate.update({
+      where: { id: userId },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+  }
 }
