@@ -8,6 +8,9 @@ import swaggerConfig from './swagger/swagger.config';
 import healthConfig from './health/health.config';
 import cacheConfig from './cache/cache.config';
 import queueConfig from './queue/queue.config';
+import emailConfig from './email/email.config';
+import storageConfig from './storage/storage.config';
+import aiConfig from './ai/ai.config';
 import { validateEnv } from './env.validation';
 
 // Milestone 14 (Production Infrastructure) — "Detect: duplicate
@@ -33,6 +36,9 @@ const CONFIG_NAMESPACES = [
   'health',
   'cache',
   'queue',
+  'email',
+  'storage',
+  'ai',
 ] as const;
 
 function assertNoDuplicateConfigNamespaces(namespaces: readonly string[]): void {
@@ -67,6 +73,9 @@ assertNoDuplicateConfigNamespaces(CONFIG_NAMESPACES);
         healthConfig,
         cacheConfig,
         queueConfig,
+        emailConfig,
+        storageConfig,
+        aiConfig,
       ],
       // Runs once at module init, before NestFactory.create() resolves —
       // throws synchronously on invalid env, which propagates out and

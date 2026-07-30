@@ -18,3 +18,6 @@ export { default as swaggerConfig } from './swagger/swagger.config';
 export { default as healthConfig } from './health/health.config';
 export { default as cacheConfig } from './cache/cache.config';
 export { default as queueConfig } from './queue/queue.config';
+export { default as emailConfig } from './email/email.config';
+export { default as storageConfig } from './storage/storage.config';
+export { default as aiConfig } from './ai/ai.config';

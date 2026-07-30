@@ -4,11 +4,13 @@ import { z } from 'zod';
 // docs/architecture/validation.md for the full rationale and lifecycle.
 // Only variables the implemented config layer actually reads are
 // validated here (app, database, security, logging, swagger, health,
-// cache, queue — see each domain's registerAs() factory). Everything else
-// in .env.example (IDP_*, JWT_*, PAYMENT_*, STORAGE_*, EMAIL_*,
-// SENTRY_DSN, OTEL_*) belongs to a config domain that's still a
-// placeholder (apps/api/src/config/*/README.md) — nothing reads them yet,
-// so nothing validates them yet.
+// cache, queue, email, storage — see each domain's registerAs() factory).
+// Everything else in .env.example (IDP_*, JWT_* beyond what's already
+// listed below, PAYMENT_*, SENTRY_DSN, OTEL_*) belongs to a config domain
+// that's still a placeholder (apps/api/src/config/*/README.md) — nothing
+// reads them yet, so nothing validates them yet. `email`/`storage`
+// (Phase 7) are real config domains now, but every var in both is
+// optional — see each var's own comment below for why.
 
 // z.coerce.boolean() is NOT used here: it runs JS `Boolean(x)`, which
 // coerces ANY non-empty string — including the literal string "false" — to
@@ -157,6 +159,55 @@ const envSchema = z.object({
   // starting point for a new environment's config) doesn't silently expose
   // the full API surface in production the moment NODE_ENV flips.
   SWAGGER_ALLOW_IN_PRODUCTION: booleanFromString('false'),
+
+  // email (Phase 7 — Real Email) — RESEND_API_KEY/EMAIL_FROM_ADDRESS are
+  // BOTH optional, deliberately not required-with-no-default like
+  // DATABASE_URL/JWT secrets above: this app must still boot and serve
+  // every existing route with zero real email credentials configured
+  // (EmailService itself no-ops with a logged warning when unset — see
+  // apps/api/src/email/email.service.ts). A missing secret here is a
+  // reduced-capability startup, not a startup failure.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM_ADDRESS: z
+    .string()
+    .email({ message: 'EMAIL_FROM_ADDRESS must be a valid email address' })
+    .optional(),
+
+  // storage (Phase 7 — Product Image Upload) — same "optional, reduced
+  // capability rather than a hard boot failure" treatment as email above.
+  // STORAGE_ENDPOINT is new (not in the original placeholder .env.example)
+  // — lets this target any S3-API-compatible provider (Cloudflare R2,
+  // DigitalOcean Spaces, MinIO), not only real AWS S3; omitted, the AWS
+  // SDK falls back to its own real-AWS endpoint resolution for the given
+  // region. STORAGE_PUBLIC_URL_BASE is also new — how an uploaded object
+  // key becomes the public URL stored on ProductImage.url.
+  STORAGE_BUCKET: z.string().optional(),
+  STORAGE_REGION: z.string().optional(),
+  STORAGE_ACCESS_KEY_ID: z.string().optional(),
+  STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
+  STORAGE_ENDPOINT: z.string().url({ message: 'STORAGE_ENDPOINT must be a valid URL' }).optional(),
+  STORAGE_PUBLIC_URL_BASE: z
+    .string()
+    .url({ message: 'STORAGE_PUBLIC_URL_BASE must be a valid URL' })
+    .optional(),
+
+  // ai (Phase 8 — AI Workspace) — same "optional, reduced capability rather
+  // than a hard boot failure" treatment as email/storage above: this app
+  // must still boot and serve every existing route with zero AI credentials
+  // configured. AiService.complete() throws a 503 at the one call site that
+  // needs a real key (see apps/api/src/ai/README.md), not here. Only
+  // Anthropic has a real tested implementation; the other three keys/models
+  // exist so their adapters are configurable the moment a real key is added,
+  // without a code change.
+  AI_DEFAULT_PROVIDER: z.enum(['anthropic', 'openai', 'gemini', 'openrouter']).default('anthropic'),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-5'),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default('gpt-4o'),
+  GOOGLE_AI_API_KEY: z.string().optional(),
+  GOOGLE_AI_MODEL: z.string().default('gemini-2.0-flash'),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default('anthropic/claude-sonnet-4.5'),
 
   // defaultTenant (Milestone 1 — Real Authentication) — a stopgap, not real
   // multi-tenant resolution: no subdomain/header-based tenant-resolution
