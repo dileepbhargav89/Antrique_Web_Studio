@@ -36,6 +36,12 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+# Phase 10, Module 10 (CI/CD) — least-privilege default; matches ci.yml's
+# own reasoning (see that file's comment) — neither job here writes to the
+# repo, only checks it out and builds.
+permissions:
+  contents: read
+
 env:
   PNPM_VERSION: 9.15.9
 
@@ -45,6 +51,10 @@ jobs:
     if: github.event.inputs.action == 'deploy'
     runs-on: ubuntu-latest
     environment: production
+    # Phase 10, Module 10 (CI/CD) — same reasoning as deploy-staging.yml's
+    # own comment: `cancel-in-progress: false` above means a hung job
+    # blocks every subsequent deploy/rollback attempt until it times out.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,6 +125,7 @@ jobs:
     if: github.event.inputs.action == 'rollback'
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4

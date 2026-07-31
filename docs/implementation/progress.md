@@ -98,6 +98,32 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 10 (CI/CD) (`.github/workflows/`)** — audited the
+  four workflow files themselves (`ci.yml`, `codeql.yml`,
+  `deploy-staging.yml`, `deploy-production.yml`) for genuine pipeline-
+  reliability gaps and found three, all mechanical: (1) no
+  `timeout-minutes` on any job anywhere — GitHub's own 360-minute default
+  applied everywhere, which mattered most for the two deploy workflows
+  since both set `cancel-in-progress: false` on their `concurrency`
+  group, so a hung deploy job would've blocked every subsequent deploy/
+  rollback attempt for up to 6 hours; (2) no `permissions:` block on
+  `ci.yml` or either deploy workflow — `codeql.yml` already declared
+  explicit least-privilege permissions, the other three silently
+  inherited the repo/org default `GITHUB_TOKEN` scope; (3) no
+  `concurrency` group on `codeql.yml` — `ci.yml`/both deploy workflows
+  already had one, so rapid pushes to `main` queued up redundant
+  overlapping CodeQL runs. All three fixes match patterns this codebase
+  already established elsewhere in the same files (`codeql.yml`'s own
+  existing `permissions:` block, `ci.yml`'s own existing `concurrency:`
+  block) rather than inventing new conventions. Deliberately NOT done:
+  SHA-pinning actions (`dependabot.yml` already tracks the
+  `github-actions` ecosystem weekly — not an actual gap), filling in
+  `deploy-staging`/`deploy-production`'s placeholder push/rollout steps
+  (needs a real registry/hosting target, already deferred to whichever
+  module provisions that), and `apps/web`'s empty test suite (a real
+  gap, but this Phase's "testing" module's territory, not this one's).
+  All four workflow files validated as syntactically valid YAML. Full
+  writeup: `docs/architecture/cicd.md` §11.
 - **Phase 10, Module 9 (DB Reliability) (`apps/api`)** — audited
   `PrismaService` (`database/prisma.service.ts`) for genuine reliability
   gaps and found two: no ceiling on how long a query can hold a pooled
@@ -4629,7 +4655,13 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
    Postgres after the textbook Prisma error codes (P2034/P1001/P1017)
    were confirmed, live, to not be what this Prisma version's
    client-engine-runtime actually throws — see that section for the real
-   error shape. **Module 10 (CI/CD) is next.**
+   error shape. **Module 10 (CI/CD) is done (2026-07-31)** — see this
+   file's own newest log entry and `docs/architecture/cicd.md` §11:
+   `timeout-minutes` added to every job across all four workflow files,
+   explicit least-privilege `permissions:` added to `ci.yml` and both
+   deploy workflows, and a `concurrency` group added to `codeql.yml` —
+   all three matching patterns already established elsewhere in this
+   codebase's own workflow files. **Module 11 (Docker/infra) is next.**
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

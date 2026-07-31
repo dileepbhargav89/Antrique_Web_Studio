@@ -10,6 +10,20 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Phase 10, Module 10 (CI/CD) — explicit least-privilege default, matching
+# codeql.yml's own already-established pattern (that workflow already
+# declares its own per-job permissions; this file previously declared none,
+# silently inheriting whatever the repo/org's default GITHUB_TOKEN scope
+# happens to be). None of this workflow's jobs write to the repo, open PRs,
+# or touch security-events — every job here only needs to read the checked-
+# out source and upload its own build artifacts, which `contents: read`
+# alone is sufficient for (`actions/upload-artifact`/`download-artifact`
+# don't require any extra scope for same-run artifacts). Set once at the
+# workflow level rather than repeated per-job since every job needs the
+# exact same scope.
+permissions:
+  contents: read
+
 env:
   PNPM_VERSION: 9.15.9
 
@@ -17,6 +31,13 @@ jobs:
   lint-typecheck-test-build:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
+    # Phase 10, Module 10 (CI/CD) — no job in this file previously had a
+    # timeout, so a hung step (a genuinely stuck test, an npm registry
+    # stall) would run until GitHub's own 360-minute default before being
+    # killed. Each value below is a rough ceiling above this job's own
+    # observed real runtime, not a tight budget — the goal is bounding the
+    # pathological case, not flagging normal variance.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,6 +105,7 @@ jobs:
   migration-validation:
     name: Validate database migrations
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -136,6 +158,7 @@ jobs:
   openapi-generation:
     name: Generate OpenAPI specification
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -204,6 +227,7 @@ jobs:
   dependency-audit:
     name: Dependency security audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -238,6 +262,7 @@ jobs:
   docker-build:
     name: Docker build (api, runtime target) + container security scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -291,6 +316,7 @@ jobs:
     name: Assemble release artifact bundle
     needs: [lint-typecheck-test-build, openapi-generation]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4

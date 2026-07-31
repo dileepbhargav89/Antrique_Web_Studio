@@ -139,7 +139,57 @@ header comment for exactly what a real implementation would need to fill
 in and which per-environment secrets (`STAGING_*`/`PRODUCTION_*`, scoped
 via GitHub Environments) it would read.
 
-## 11. Frontend developers — where to get the OpenAPI spec
+## 11. Pipeline reliability hardening (Phase 10, Module 10 — 2026-07-31)
+
+Audit of the four workflow files themselves (`ci.yml`, `codeql.yml`,
+`deploy-staging.yml`, `deploy-production.yml`) for genuine gaps, not a
+generic hardening checklist — found and fixed three, all mechanical,
+none changing what any job actually does:
+
+- **No `timeout-minutes` on any job, anywhere.** A hung step (a genuinely
+  stuck test, a registry stall) previously ran until GitHub's own
+  360-minute default before being killed. This mattered most for
+  `deploy-staging.yml`/`deploy-production.yml` specifically: both set
+  `cancel-in-progress: false` on their `concurrency` group (deliberately —
+  a deploy shouldn't be silently superseded by a later trigger), which
+  means a hung deploy job wasn't just slow, it blocked every subsequent
+  deploy/rollback attempt for up to 6 hours. Every job in all four files
+  now has a `timeout-minutes` set to a rough ceiling above its own
+  observed real runtime (15-20 for most; 30 for `codeql`'s analysis,
+  which can run long on a cold cache) — bounding the pathological case,
+  not budgeting normal variance.
+- **No `permissions:` block on `ci.yml` or either deploy workflow.**
+  `codeql.yml` already declared explicit least-privilege permissions
+  (`contents: read`, `security-events: write` — it needs to upload scan
+  results); the other three silently inherited whatever the repo/org's
+  default `GITHUB_TOKEN` scope happens to be. None of these jobs write to
+  the repo, open PRs, or need anything beyond reading the checked-out
+  source (`actions/upload-artifact`/`download-artifact` need no extra
+  scope for same-run artifacts) — all three now declare `permissions:
+  contents: read` at the workflow level, matching `codeql.yml`'s own
+  already-established pattern rather than inventing a new one.
+- **No `concurrency` group on `codeql.yml`.** `ci.yml` and both deploy
+  workflows already had one; without it, rapid pushes to `main` queued up
+  redundant, overlapping CodeQL runs instead of the latest push
+  superseding the rest. Now matches `ci.yml`'s own pattern
+  (`cancel-in-progress: true` — unlike the deploy workflows, a superseded
+  CodeQL run on an old commit has no value worth preserving).
+
+**Deliberately NOT done**, and why: SHA-pinning third-party actions
+(`@v4` → a specific commit) — a real supply-chain hardening practice, but
+`dependabot.yml` already tracks the `github-actions` ecosystem weekly, so
+tag freshness isn't actually a gap here, and blind SHA-pinning without
+that specific justification would be scope creep. Filling in
+`deploy-staging`/`deploy-production`'s placeholder push/rollout steps —
+needs a real container registry and hosting target, already deferred
+(§10 above, `deployment.md` §7) to whichever module actually provisions
+that infrastructure. `apps/web` having no real test suite (`"test":
+"echo \"no tests configured yet\""` in its own `package.json`, currently
+a silent no-op inside `lint-typecheck-test-build`) — a real gap, but a
+testing-strategy one, not a pipeline one; it belongs to this Phase's
+later "testing" module, not this one.
+
+## 12. Frontend developers — where to get the OpenAPI spec
 
 Download the `openapi-spec` artifact from the most recent successful
 `openapi-generation` job run on `main` (GitHub Actions UI → the workflow

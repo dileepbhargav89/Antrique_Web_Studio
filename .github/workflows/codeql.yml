@@ -8,10 +8,21 @@ on:
   schedule:
     - cron: '30 3 * * 1'
 
+# Phase 10, Module 10 (CI/CD) — matches ci.yml's own already-established
+# concurrency group: without one, rapid pushes to main queue up redundant,
+# overlapping CodeQL runs instead of the latest push superseding the rest.
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze (javascript-typescript)
     runs-on: ubuntu-latest
+    # Phase 10, Module 10 (CI/CD) — CodeQL analysis can run long on a
+    # cold cache; bounding it prevents a stuck run from blocking the
+    # concurrency group above indefinitely.
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
