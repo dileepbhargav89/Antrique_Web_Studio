@@ -29,6 +29,12 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/api-contract/package.json packages/api-contract/package.json
 COPY packages/config/package.json packages/config/package.json
+# apps/api/package.json's own "postinstall": "prisma generate" runs
+# automatically as part of `pnpm install` below — confirmed live (Render
+# build): without the schema present yet, it fails with "Could not find
+# Prisma Schema," since this stage otherwise only copies manifests, not
+# source, and full source isn't copied until the dev/build stages below.
+COPY apps/api/prisma apps/api/prisma
 RUN pnpm install --frozen-lockfile
 
 # ---- dev: full source, all deps — used by docker-compose.override.yml ----
