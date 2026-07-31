@@ -2,7 +2,7 @@
 # Build from the monorepo root:
 #   docker build -f infrastructure/docker/web.Dockerfile -t antrique-web .
 
-FROM node:22-alpine AS base
+FROM node:25-alpine AS base
 RUN npm install -g pnpm@9.15.9
 WORKDIR /repo
 
@@ -28,7 +28,7 @@ COPY . .
 RUN pnpm --filter @antrique/web build
 
 # ---- runtime: minimal production image, no build tooling, non-root ----
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 ENV NODE_ENV=production
 ENV PORT=3000
 WORKDIR /app
