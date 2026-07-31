@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, HttpException, Inject, Injectable } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import { Request } from 'express';
+import * as Sentry from '@sentry/node';
 import { LOGGER, Logger } from '../../logging';
 
 // Logs every unhandled exception through the existing LOGGER, then
@@ -47,6 +48,18 @@ export class ExceptionLoggingFilter extends BaseExceptionFilter {
       ...(errors !== undefined ? { errors } : {}),
       ...(details !== undefined ? { details } : {}),
     });
+
+    // Phase 10, Module 8 revisit — real errors only, not every rejected
+    // request: an `HttpException` with a 4xx status (validation failure,
+    // not-found, unauthorized) is expected application behavior, not a
+    // bug — reporting every one to Sentry would bury genuine crashes in
+    // noise. `statusCode === undefined` covers a non-HttpException (an
+    // unexpected thrown value, Nest's own default 500 case); an
+    // HttpException with a 5xx status (rare — most of this codebase's own
+    // HttpException subclasses are 4xx) is still a real error too.
+    if (statusCode === undefined || statusCode >= 500) {
+      Sentry.captureException(exception);
+    }
 
     super.catch(exception, host);
   }

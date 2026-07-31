@@ -7,11 +7,12 @@ import { z } from 'zod';
 // monitoring, cache, queue, email, storage — see each domain's
 // registerAs() factory).
 // Everything else in .env.example (IDP_*, JWT_* beyond what's already
-// listed below, PAYMENT_*, SENTRY_DSN, OTEL_*) belongs to a config domain
-// that's still a placeholder (apps/api/src/config/*/README.md) — nothing
-// reads them yet, so nothing validates them yet. `email`/`storage`
-// (Phase 7) are real config domains now, but every var in both is
-// optional — see each var's own comment below for why.
+// listed below, PAYMENT_*, OTEL_*) belongs to a config domain that's
+// still a placeholder (apps/api/src/config/*/README.md) — nothing reads
+// them yet, so nothing validates them yet. `email`/`storage` (Phase 7)
+// and `SENTRY_DSN` (Phase 10, Module 8 revisit) are real config domains
+// now, but every var among them is optional — see each var's own comment
+// below for why.
 
 // z.coerce.boolean() is NOT used here: it runs JS `Boolean(x)`, which
 // coerces ANY non-empty string — including the literal string "false" — to
@@ -124,6 +125,23 @@ const envSchema = z.object({
   // here (required only in production, when enabled — same superRefine).
   METRICS_ENABLED: booleanFromString('true'),
   METRICS_TOKEN: z.string().optional(),
+
+  // Sentry (Phase 10, Module 8 revisit — first real consumer:
+  // src/monitoring/sentry.ts). Optional everywhere, including production —
+  // unlike JWT secrets/DATABASE_SSL, a missing SENTRY_DSN degrades to "no
+  // error tracking," not a security or correctness gap, so there is no
+  // production-safety superRefine check forcing it to be set. `.env`/
+  // `.env.example` both leave this line present but blank
+  // (`SENTRY_DSN=`) rather than omitting it — `z.preprocess` maps that
+  // empty string to `undefined` before the `.url()` check runs, so "blank"
+  // and "absent entirely" are treated identically (confirmed live: without
+  // this, NestJS's ConfigModule auto-loading `apps/api/.env` made every
+  // local dev boot/test run fail with "SENTRY_DSN must be a valid URL"
+  // despite SENTRY_DSN being genuinely unconfigured, not actually invalid).
+  SENTRY_DSN: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.string().url({ message: 'SENTRY_DSN must be a valid URL' }).optional(),
+  ),
 
   // cache / queue — same Redis instance, two distinct config namespaces
   // (see configuration.md's cache/queue split rationale). Required, no

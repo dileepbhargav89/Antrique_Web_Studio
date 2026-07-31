@@ -1,98 +1,109 @@
 import { MetricsService } from '../metrics/metrics.service';
 import { CacheService } from './cache.service';
+import { InMemoryCacheStore } from './in-memory-cache.store';
 
+// CacheService itself is store-agnostic (see cache-store.interface.ts) —
+// these tests exercise it against InMemoryCacheStore, the same store
+// every business-logic test elsewhere in this codebase constructs
+// directly for a fast, dependency-free cache double. RedisCacheStore's
+// own Redis-specific behavior (key prefixing, SCAN-based prefix delete,
+// resilience to a Redis error) is covered separately in
+// redis-cache.store.spec.ts.
 describe('CacheService', () => {
   afterEach(() => {
     jest.useRealTimers();
   });
 
+  function createCache() {
+    return new CacheService(new InMemoryCacheStore(), new MetricsService());
+  }
+
   describe('get() / set()', () => {
-    it('returns undefined for a key that was never set', () => {
-      const cache = new CacheService(new MetricsService());
+    it('returns undefined for a key that was never set', async () => {
+      const cache = createCache();
 
-      expect(cache.get('missing')).toBeUndefined();
+      await expect(cache.get('missing')).resolves.toBeUndefined();
     });
 
-    it('returns the set value while still within its TTL', () => {
-      const cache = new CacheService(new MetricsService());
+    it('returns the set value while still within its TTL', async () => {
+      const cache = createCache();
 
-      cache.set('key-1', { value: 42 }, 1000);
+      await cache.set('key-1', { value: 42 }, 1000);
 
-      expect(cache.get('key-1')).toEqual({ value: 42 });
+      await expect(cache.get('key-1')).resolves.toEqual({ value: 42 });
     });
 
-    it('returns undefined and evicts the entry once its TTL has elapsed', () => {
+    it('returns undefined once its TTL has elapsed', async () => {
       jest.useFakeTimers().setSystemTime(0);
-      const cache = new CacheService(new MetricsService());
-      cache.set('key-1', 'fresh', 1000);
+      const cache = createCache();
+      await cache.set('key-1', 'fresh', 1000);
 
       jest.setSystemTime(1001);
 
-      expect(cache.get('key-1')).toBeUndefined();
-      expect(cache.size).toBe(0);
+      await expect(cache.get('key-1')).resolves.toBeUndefined();
     });
 
-    it('does not expire an entry read just before its TTL elapses (boundary is exceeded, not equal)', () => {
+    it('does not expire an entry read just before its TTL elapses (boundary is exceeded, not equal)', async () => {
       jest.useFakeTimers().setSystemTime(0);
-      const cache = new CacheService(new MetricsService());
-      cache.set('key-1', 'fresh', 1000);
+      const cache = createCache();
+      await cache.set('key-1', 'fresh', 1000);
 
       jest.setSystemTime(999);
 
-      expect(cache.get('key-1')).toBe('fresh');
+      await expect(cache.get('key-1')).resolves.toBe('fresh');
     });
   });
 
   describe('delete() / deleteByPrefix() / clear()', () => {
-    it('delete() removes exactly the given key', () => {
-      const cache = new CacheService(new MetricsService());
-      cache.set('a', 1, 1000);
-      cache.set('b', 2, 1000);
+    it('delete() removes exactly the given key', async () => {
+      const cache = createCache();
+      await cache.set('a', 1, 1000);
+      await cache.set('b', 2, 1000);
 
-      cache.delete('a');
+      await cache.delete('a');
 
-      expect(cache.get('a')).toBeUndefined();
-      expect(cache.get('b')).toBe(2);
+      await expect(cache.get('a')).resolves.toBeUndefined();
+      await expect(cache.get('b')).resolves.toBe(2);
     });
 
-    it('deleteByPrefix() removes every key sharing the given prefix, leaving others untouched', () => {
-      const cache = new CacheService(new MetricsService());
-      cache.set('role-keys:tenant-1:a@x.com', ['admin'], 1000);
-      cache.set('role-keys:tenant-1:b@x.com', ['manager'], 1000);
-      cache.set('role-keys:tenant-2:a@x.com', ['customer'], 1000);
+    it('deleteByPrefix() removes every key sharing the given prefix, leaving others untouched', async () => {
+      const cache = createCache();
+      await cache.set('role-keys:tenant-1:a@x.com', ['admin'], 1000);
+      await cache.set('role-keys:tenant-1:b@x.com', ['manager'], 1000);
+      await cache.set('role-keys:tenant-2:a@x.com', ['customer'], 1000);
 
-      cache.deleteByPrefix('role-keys:tenant-1:');
+      await cache.deleteByPrefix('role-keys:tenant-1:');
 
-      expect(cache.get('role-keys:tenant-1:a@x.com')).toBeUndefined();
-      expect(cache.get('role-keys:tenant-1:b@x.com')).toBeUndefined();
-      expect(cache.get('role-keys:tenant-2:a@x.com')).toEqual(['customer']);
+      await expect(cache.get('role-keys:tenant-1:a@x.com')).resolves.toBeUndefined();
+      await expect(cache.get('role-keys:tenant-1:b@x.com')).resolves.toBeUndefined();
+      await expect(cache.get('role-keys:tenant-2:a@x.com')).resolves.toEqual(['customer']);
     });
 
-    it('clear() empties every entry regardless of key', () => {
-      const cache = new CacheService(new MetricsService());
-      cache.set('a', 1, 1000);
-      cache.set('b', 2, 1000);
+    it('clear() empties every entry regardless of key', async () => {
+      const cache = createCache();
+      await cache.set('a', 1, 1000);
+      await cache.set('b', 2, 1000);
 
-      cache.clear();
+      await cache.clear();
 
-      expect(cache.size).toBe(0);
+      await expect(cache.size()).resolves.toBe(0);
     });
   });
 
   describe('getOrLoad()', () => {
     it('calls load() on a miss and caches the result', async () => {
-      const cache = new CacheService(new MetricsService());
+      const cache = createCache();
       const load = jest.fn(async () => 'loaded-value');
 
       const result = await cache.getOrLoad('key-1', 1000, load);
 
       expect(result).toBe('loaded-value');
       expect(load).toHaveBeenCalledTimes(1);
-      expect(cache.get('key-1')).toBe('loaded-value');
+      await expect(cache.get('key-1')).resolves.toBe('loaded-value');
     });
 
     it('does not call load() again on a subsequent hit within the TTL', async () => {
-      const cache = new CacheService(new MetricsService());
+      const cache = createCache();
       const load = jest.fn(async () => 'loaded-value');
 
       await cache.getOrLoad('key-1', 1000, load);
@@ -103,7 +114,7 @@ describe('CacheService', () => {
 
     it('calls load() again once the cached value has expired', async () => {
       jest.useFakeTimers().setSystemTime(0);
-      const cache = new CacheService(new MetricsService());
+      const cache = createCache();
       const load = jest.fn(async () => 'loaded-value');
 
       await cache.getOrLoad('key-1', 1000, load);
@@ -118,7 +129,7 @@ describe('CacheService', () => {
   describe('getOrLoad() metrics', () => {
     it('records a "miss" for the load and a "hit" for the subsequent cached read', async () => {
       const metrics = new MetricsService();
-      const cache = new CacheService(metrics);
+      const cache = new CacheService(new InMemoryCacheStore(), metrics);
       const load = jest.fn(async () => 'value');
 
       await cache.getOrLoad('tenant-resolve:slug:acme', 1000, load);
@@ -131,7 +142,7 @@ describe('CacheService', () => {
 
     it('labels by the key namespace (segment before the first ":"), not the full key', async () => {
       const metrics = new MetricsService();
-      const cache = new CacheService(metrics);
+      const cache = new CacheService(new InMemoryCacheStore(), metrics);
 
       await cache.getOrLoad('role-keys:tenant-1:user@example.com', 1000, async () => 'v');
 
@@ -142,15 +153,15 @@ describe('CacheService', () => {
     });
   });
 
-  describe('size', () => {
-    it('reflects the number of currently-held entries', () => {
-      const cache = new CacheService(new MetricsService());
-      expect(cache.size).toBe(0);
+  describe('size()', () => {
+    it('reflects the number of currently-held entries', async () => {
+      const cache = createCache();
+      await expect(cache.size()).resolves.toBe(0);
 
-      cache.set('a', 1, 1000);
-      cache.set('b', 2, 1000);
+      await cache.set('a', 1, 1000);
+      await cache.set('b', 2, 1000);
 
-      expect(cache.size).toBe(2);
+      await expect(cache.size()).resolves.toBe(2);
     });
   });
 });

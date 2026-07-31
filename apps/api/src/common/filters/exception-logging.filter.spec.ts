@@ -1,7 +1,15 @@
-import { ArgumentsHost, BadRequestException } from '@nestjs/common';
+import { ArgumentsHost, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
+import * as Sentry from '@sentry/node';
 import { ExceptionLoggingFilter } from './exception-logging.filter';
 import { Logger, RequestContext, RequestContextService } from '../../logging';
+
+// Phase 10, Module 8 revisit — the SDK's own network/queueing behavior
+// isn't this filter's concern to re-verify (that's Sentry's own job);
+// what this filter is responsible for is calling `captureException()` for
+// the right exceptions and skipping it for the rest, which a mocked
+// module isolates cleanly.
+jest.mock('@sentry/node');
 
 describe('ExceptionLoggingFilter', () => {
   const makeLogger = (): jest.Mocked<Logger> => ({
@@ -35,10 +43,43 @@ describe('ExceptionLoggingFilter', () => {
     superCatchSpy = jest
       .spyOn(BaseExceptionFilter.prototype, 'catch')
       .mockImplementation(() => undefined);
+    jest.mocked(Sentry.captureException).mockClear();
   });
 
   afterEach(() => {
     superCatchSpy.mockRestore();
+  });
+
+  describe('Sentry reporting', () => {
+    it('reports a non-HttpException (an unexpected thrown value) to Sentry', () => {
+      const logger = makeLogger();
+      const filter = new ExceptionLoggingFilter(logger);
+      const exception = new Error('boom');
+
+      filter.catch(exception, makeHost());
+
+      expect(Sentry.captureException).toHaveBeenCalledWith(exception);
+    });
+
+    it('reports an HttpException with a 5xx status to Sentry', () => {
+      const logger = makeLogger();
+      const filter = new ExceptionLoggingFilter(logger);
+      const exception = new InternalServerErrorException('db unreachable');
+
+      filter.catch(exception, makeHost());
+
+      expect(Sentry.captureException).toHaveBeenCalledWith(exception);
+    });
+
+    it('does NOT report an HttpException with a 4xx status to Sentry — expected application behavior, not a bug', () => {
+      const logger = makeLogger();
+      const filter = new ExceptionLoggingFilter(logger);
+      const exception = new BadRequestException('bad input');
+
+      filter.catch(exception, makeHost());
+
+      expect(Sentry.captureException).not.toHaveBeenCalled();
+    });
   });
 
   it('logs an HttpException with its real status code, message, and stack', () => {

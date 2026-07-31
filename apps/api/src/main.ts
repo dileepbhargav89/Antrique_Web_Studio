@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigType } from '@nestjs/config';
@@ -7,11 +8,19 @@ import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { appConfig, swaggerConfig } from './config';
+import { validateEnv } from './config/env.validation';
 import { HttpLoggingMiddleware } from './common/middleware/http-logging.middleware';
 import { VALIDATION_PIPE_OPTIONS } from './common/pipes/validation-pipe.options';
 import { applyApiRouting } from './bootstrap/api-routing';
 import { buildSwaggerDocument } from './bootstrap/swagger-document';
 import { LOGGER, Logger as AppLogger } from './logging';
+import { initSentry } from './monitoring/sentry';
+
+// Phase 10, Module 8 revisit — as early as physically possible in this
+// process, before anything else below can throw. Uses `validateEnv()`
+// directly (not DI — nothing is constructed yet, same constraint the
+// crash handlers just below already accepted).
+initSentry(validateEnv());
 
 // Phase 10, Module 5 (Observability) — "process-level crash visibility."
 // Confirmed absent by this module's own audit: nothing anywhere caught
@@ -35,16 +44,26 @@ import { LOGGER, Logger as AppLogger } from './logging';
 // versions for unhandled rejections specifically, rather than relying
 // on whatever Node's own default (`--unhandled-rejections` mode) happens
 // to be.
+// Phase 10, Module 8 revisit — `Sentry.captureException()` is fire-and-
+// forget (queues the event in-memory); without an explicit flush, a
+// synchronous `process.exit()` right after would very plausibly kill the
+// process before the SDK's own background HTTP send ever leaves the
+// process, silently dropping exactly the event this exists to capture.
+// `Sentry.close(2000)` waits (bounded to 2s) for any queued events to
+// flush before resolving, `.finally()` so a Sentry-side failure
+// (network down, etc.) still exits the process rather than hanging it.
 process.on('uncaughtException', (error) => {
   // eslint-disable-next-line no-console
   console.error('uncaughtException', error);
-  process.exit(1);
+  Sentry.captureException(error);
+  void Sentry.close(2000).finally(() => process.exit(1));
 });
 
 process.on('unhandledRejection', (reason) => {
   // eslint-disable-next-line no-console
   console.error('unhandledRejection', reason);
-  process.exit(1);
+  Sentry.captureException(reason);
+  void Sentry.close(2000).finally(() => process.exit(1));
 });
 
 // Milestone 13 (Security Hardening) — "request size limits, JSON body

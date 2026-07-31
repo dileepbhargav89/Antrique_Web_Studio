@@ -5,8 +5,9 @@ truth for how `apps/api/src/config/` is organized, the conventions every
 future config domain follows, and how config flows through the app at
 runtime. Same relationship `database-schema.md` has to `database.md`.
 
-**Status:** 8 real namespaces (`app`, `database`, `security`, `logging`,
-`swagger`, `health`, `cache`, `queue` — Phase 1.2B.3), 10 still placeholder.
+**Status:** 9 real namespaces (`app`, `database`, `security`, `logging`,
+`swagger`, `health`, `cache`, `queue` — Phase 1.2B.3; `monitoring` graduated
+in Phase 10, Module 8's revisit), 9 still placeholder.
 Env validation covers every real namespace's fields — see
 `docs/architecture/validation.md` (Phase 1.2B.2/1.2B.3). For usage
 examples, troubleshooting, and the step-by-step extension process, see
@@ -56,18 +57,22 @@ apps/api/src/config/
   search/          PLACEHOLDER  Search provider config.
   analytics/       PLACEHOLDER  Analytics provider config.
   feature-flags/   PLACEHOLDER  Flag provider config.
-  monitoring/      PLACEHOLDER  Sentry/OTel config.
+  monitoring/              REAL  metricsEnabled/metricsToken (Module 6) +
+    monitoring.config.ts      sentryDsn/appVersion/nodeEnv (Phase 10,
+    index.ts                  Module 8 revisit). OTel exporter endpoint
+                               remains unread by any code.
 ```
 
 "Placeholder" means the same thing it means everywhere else in this repo
 (the convention Phase 0 set for `common/`/`jobs/`/`modules/*/`, extended by
 Phase 1.2A to `database/`/`health/`/`shared/`/`types/`/`utils/`): a folder
-with one README describing its purpose, zero code. These 10 stay
+with one README describing its purpose, zero code. These 9 stay
 placeholders because they're third-party product/vendor integrations that
 don't exist yet (Phase 1.2B.3's brief: "do not create speculative
-configuration for future products or integrations") — unlike the 6 domains
-graduated this phase, which are platform-internal infrastructure with
-genuine, if minimal, content today.
+configuration for future products or integrations") — unlike the domains
+that have since graduated (the original 6 from this phase, plus
+`monitoring` in Phase 10's Module 8 revisit), which are platform-internal
+infrastructure with genuine, if minimal, content today.
 
 **A 9th real namespace, `loggerOptions`, exists outside this folder
 entirely.** `apps/api/src/logging/config/logger-options.config.ts`

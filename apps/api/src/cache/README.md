@@ -1,49 +1,85 @@
-# Cache module — CacheService (Milestone 12 — Performance Engineering)
+# Cache module — CacheService (Milestone 12 — Performance Engineering; Redis-backed since Phase 10, Module 8 revisit)
 
 Application-level caching infrastructure — a new top-level infra module
 mirroring `jwt/` (`TokenModule`) and `password/` (`PasswordModule`)'s exact
 precedent: `@Global()` so any future consumer can inject `CacheService`
 without this module being imported everywhere.
 
-"Implement a reusable cache abstraction. Support: in-memory cache, TTL,
-invalidation hooks, cache keys, read-through strategy... No Redis. No
-distributed cache." — this milestone's own explicit brief. `CacheService`
-is a single process-local `Map`, lazily expired on read (checked only when
-a key is actually read, never swept by a background timer — no
-`onModuleDestroy` cleanup complexity, no risk of a timer firing after
-shutdown begins). Deliberately NOT a distributed cache: a multi-instance
-deployment would each hold its own independent copy — exactly why this must
-never front anything a stale READ could make INCORRECT to act on
-(mutable/transactional business state), only read-mostly reference/config
-data where a few seconds of staleness is a non-issue.
+Originally built as "in-memory cache, TTL, invalidation hooks, cache keys,
+read-through strategy... No Redis. No distributed cache" (Milestone 12's
+own explicit brief) — correct for a single instance, but a multi-instance
+deployment (Phase 10's actual production target) would have each instance
+holding its own independent, silently-diverging copy. Revisited this pass:
+a real Redis instance is now provisioned (previously validated as
+`REDIS_URL` but never consumed by any client — see `cache.config.ts`'s own
+prior comment), so `CacheService` is backed by it in production, and every
+instance now shares one cache.
+
+The storage backend is injected as a `CacheStore` (`cache-store.interface.ts`)
+so this swap didn't have to touch every test that constructs a working
+`CacheService` for unrelated business-logic tests:
+
+- `RedisCacheStore` — what `CacheModule` wires up for real. Every key is
+  namespaced under a `cache:` prefix; TTL is Redis's own native expiry
+  (`SET ... PX ttlMs`), not hand-rolled bookkeeping; a transient Redis
+  error on any operation is caught, logged, and treated as a miss/no-op
+  rather than propagated (a cache is best-effort — the "hottest read
+  paths" this sits in front of should degrade to their own uncached path
+  under a brief Redis blip, not fail the request outright).
+- `InMemoryCacheStore` — the original Milestone 12 `Map`-based
+  implementation, kept specifically because it's what every business-logic
+  test that needs a real, fast, dependency-free cache double
+  (dashboard/authorization/tenant-resolver specs, etc.) constructs
+  directly, with no live Redis required.
+
+`RedisService` (`redis.service.ts`) is the actual `ioredis` client —
+extends `Redis` directly, the same "no wrapper, inject the client itself"
+precedent `PrismaService extends PrismaClient` already established.
+Fail-fast on a bad `REDIS_URL` at boot (`onModuleInit()`), matching
+`PrismaService`'s own reasoning; exposes `isHealthy()` for
+`HealthService`'s `checks.redis` probe. `family: 4` is forced on the
+connection — confirmed live during this pass: a bare `localhost` in
+`REDIS_URL` resolves to the IPv6 loopback first on this codebase's own
+Windows dev environment, but Memurai (the local Redis-compatible service
+used there) only binds IPv4, so an unqualified connection attempt failed
+with `ECONNREFUSED` even with an otherwise-correct `REDIS_URL`.
 
 ## What's real here
 
-- `cache.service.ts` — `CacheService`:
+- `cache.service.ts` — `CacheService`, now a thin delegator to whichever
+  `CacheStore` is injected:
   - `get<T>(key)` / `set<T>(key, value, ttlMs)` — the primitives. `get()`
-    returns `undefined` for both "never set" and "expired" (a caller never
-    needs to distinguish the two); an expired entry is deleted on the read
-    that discovers it.
+    returns `undefined` for "never set," "expired," and (for
+    `RedisCacheStore`) "Redis unreachable right now" alike — a caller
+    never needs to distinguish any of them, only whether a fresh value
+    must be loaded.
   - `delete(key)` / `deleteByPrefix(prefix)` / `clear()` — "invalidation
     hooks." Cache keys in this codebase follow a
     `"<namespace>:<tenantId>:<rest>"` convention (e.g.
     `role-keys:{tenantId}:{email}`), so `deleteByPrefix()` can invalidate
     every entry for one tenant/namespace in one call without the caller
-    needing to know every exact key that was ever set.
+    needing to know every exact key that was ever set. `RedisCacheStore`
+    implements this via `SCAN` (never `KEYS`, which blocks the whole
+    instance on a large keyspace), not a native Redis primitive.
   - `getOrLoad<T>(key, ttlMs, load)` — "read-through strategy," the one
     method most real callers actually use: return the cached value if
     still fresh, otherwise call `load()`, cache its result, return it.
     `load()` only ever runs on a genuine miss. A concurrent second caller
     racing the same key before the first `load()` resolves independently
-    calls `load()` again — an accepted, harmless double-load under this
-    process-local, non-distributed design; there is no cross-request lock
-    to coordinate them, and adding one would be exactly the kind of
-    complexity "application-level optimization only" argues against.
-  - `size` — instrumentation/testing only, no production call site (the
+    calls `load()` again — an accepted, harmless double-load; there is no
+    cross-request lock to coordinate them, and adding one would be
+    exactly the kind of complexity "application-level optimization only"
+    argues against.
+  - `size()` — instrumentation/testing only, no production call site (the
     same "build the capability, no forced current consumer" pattern
-    `PerformanceLogger`/`RequestContextService` already established).
+    `PerformanceLogger`/`RequestContextService` already established). Now
+    async (a `RedisCacheStore` `SCAN` count, not a synchronous `Map.size`).
+- `cache-store.interface.ts` / `in-memory-cache.store.ts` /
+  `redis-cache.store.ts` — the `CacheStore` abstraction and its two
+  implementations, described above.
+- `redis.service.ts` — `RedisService`, the real `ioredis` client.
 - `cache.module.ts` — `CacheModule`, `@Global()`, exports `CacheService`
-  only.
+  and `RedisService`; binds `CACHE_STORE` to `RedisCacheStore`.
 
 ## First real consumer: `AuthorizationService`
 
@@ -90,7 +126,8 @@ at all). Deferred rather than rushed; see
 
 ## What this module explicitly does NOT do
 
-No Redis, no distributed cache, no cross-process coordination, no
-background expiry sweep, no cache warming, no write-through/write-behind
-strategy, no per-key size limit or LRU eviction (this codebase's own scale
-has never needed one — revisit if it does).
+No cross-process coordination beyond what Redis itself provides, no cache
+warming, no write-through/write-behind strategy, no per-key size limit or
+LRU eviction (this codebase's own scale has never needed one — revisit if
+it does), no distinguishing "expired" from "Redis briefly unreachable" (by
+design — see `get()`'s own comment).

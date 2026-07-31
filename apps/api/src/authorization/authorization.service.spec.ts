@@ -3,6 +3,7 @@ import { RoleRepository } from './repositories/role.repository';
 import { PermissionRepository } from './repositories/permission.repository';
 import { AuthorizationCache } from '../types/authorization-cache.type';
 import { CacheService } from '../cache/cache.service';
+import { InMemoryCacheStore } from '../cache/in-memory-cache.store';
 import { MetricsService } from '../metrics/metrics.service';
 
 const TENANT_ID = '00000000-0000-7000-8000-000000000001';
@@ -23,7 +24,7 @@ function createService(roleRepository: RoleRepository, permissionRepository: Per
   return new AuthorizationService(
     roleRepository,
     permissionRepository,
-    new CacheService(new MetricsService()),
+    new CacheService(new InMemoryCacheStore(), new MetricsService()),
   );
 }
 

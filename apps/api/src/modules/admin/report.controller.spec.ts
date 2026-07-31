@@ -17,6 +17,7 @@ import { AuthorizationService } from '../../authorization/authorization.service'
 import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { PerformanceLogger } from '../../logging';
 import { CacheService } from '../../cache/cache.service';
+import { InMemoryCacheStore } from '../../cache/in-memory-cache.store';
 import { MetricsService } from '../../metrics/metrics.service';
 import { ReportType, Prisma } from '../../../generated/prisma/client';
 
@@ -108,7 +109,10 @@ describe('ReportController', () => {
           provide: PerformanceLogger,
           useValue: { measureAsync: (_op: string, fn: () => unknown) => fn() },
         },
-        { provide: CacheService, useValue: new CacheService(new MetricsService()) },
+        {
+          provide: CacheService,
+          useValue: new CacheService(new InMemoryCacheStore(), new MetricsService()),
+        },
       ],
     }).compile();
 

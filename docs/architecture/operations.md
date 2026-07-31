@@ -245,19 +245,31 @@ Module 5 entry. Summary for operational purposes:
   everything else.** Previously used `@nestjs/common`'s built-in
   (non-JSON, colorized) `Logger` — a real, if minor, inconsistency for
   log-aggregation tooling expecting uniform JSON on stdout.
-- **Distributed tracing (OpenTelemetry) and third-party error tracking
-  (Sentry etc.) remain deliberately unbuilt** — audited and confirmed no
-  APM/tracing backend is configured in any environment this app deploys
-  to today (`SENTRY_DSN`/`OTEL_EXPORTER_OTLP_ENDPOINT` sit blank in
+- **Distributed tracing (OpenTelemetry) remains deliberately unbuilt** —
+  no APM/tracing backend is configured in any environment this app
+  deploys to today (`OTEL_EXPORTER_OTLP_ENDPOINT` still sits blank in
   `.env.example`), and this is a single-service monolith, so the value a
   span adds over the already-real `requestId`/`correlationId`
-  propagation is real only once either changes. Not a promise this
-  module fulfilled late — see `logging/README.md`'s own "Future
-  extension points" for the full reasoning.
-- **Health checks re-confirmed correctly scoped** — `GET /health/*`
-  checks PostgreSQL only, and that's correct: the cache module
-  (`apps/api/src/cache/`) is in-process/in-memory, not a real Redis
-  dependency, so there is no second external dependency to check yet.
+  propagation is real only once that changes. See `logging/README.md`'s
+  own "Future extension points" for the full reasoning.
+- **Third-party error tracking (Sentry) is now real** (Phase 10, Module 8
+  revisit) — `apps/api/src/monitoring/sentry.ts` initializes `@sentry/node`
+  as early as possible in `main.ts` (before the process-level crash
+  handlers below can even fire), `ExceptionLoggingFilter` reports every
+  non-4xx exception (an unhandled 5xx, or any non-`HttpException` thrown
+  value), and both `uncaughtException`/`unhandledRejection` handlers now
+  flush to Sentry (bounded to 2s via `Sentry.close()`) before exiting.
+  `tracesSampleRate: 0` — error capture only, no performance
+  tracing/APM, for the same single-service-monolith reasoning above. A
+  blank `SENTRY_DSN` (the default — no project provisioned) makes the SDK
+  a documented no-op; nothing crashes or behaves differently either way.
+- **Health checks now cover both real dependencies** — `GET /health/*`
+  originally checked PostgreSQL only, correct at the time: the cache
+  module (`apps/api/src/cache/`) was in-process/in-memory, not a real
+  Redis dependency. Superseded by Phase 10, Module 8's revisit — the
+  cache module is now Redis-backed (`RedisService`), so `checks.redis` is
+  a second real probe alongside `checks.database`, both required for
+  readiness/startup to report `ok`.
 
 ## 11. Phase 10, Module 6 — Monitoring (2026-07-30)
 

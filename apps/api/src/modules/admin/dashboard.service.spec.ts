@@ -11,6 +11,7 @@ import { ProductRepository } from '../catalog/repositories/product.repository';
 import { PerformanceLogger, Logger } from '../../logging';
 import { Prisma } from '../../../generated/prisma/client';
 import { CacheService } from '../../cache/cache.service';
+import { InMemoryCacheStore } from '../../cache/in-memory-cache.store';
 import { MetricsService } from '../../metrics/metrics.service';
 
 const TENANT_ID = '00000000-0000-7000-8000-000000000001';
@@ -123,7 +124,7 @@ describe('DashboardService', () => {
       // class's own comment) makes it cheap and safe to construct fresh
       // per test, and the caching tests below need the real
       // get/set/TTL behavior.
-      overrides.cache ?? new CacheService(new MetricsService()),
+      overrides.cache ?? new CacheService(new InMemoryCacheStore(), new MetricsService()),
     );
   }
 
@@ -233,7 +234,7 @@ describe('DashboardService', () => {
     describe('caching', () => {
       it('does not re-aggregate for a second overview() call with the same tenant/date-range', async () => {
         const auditRepository = createFakeAuditRepository();
-        const cache = new CacheService(new MetricsService());
+        const cache = new CacheService(new InMemoryCacheStore(), new MetricsService());
         const service = createService({ auditRepository, cache });
 
         await service.overview(TENANT_ID);
@@ -244,7 +245,7 @@ describe('DashboardService', () => {
 
       it('re-aggregates for a different tenant, even with the same date range', async () => {
         const auditRepository = createFakeAuditRepository();
-        const cache = new CacheService(new MetricsService());
+        const cache = new CacheService(new InMemoryCacheStore(), new MetricsService());
         const service = createService({ auditRepository, cache });
 
         await service.overview(TENANT_ID);
@@ -255,7 +256,7 @@ describe('DashboardService', () => {
 
       it('re-aggregates for a different date range, even for the same tenant', async () => {
         const auditRepository = createFakeAuditRepository();
-        const cache = new CacheService(new MetricsService());
+        const cache = new CacheService(new InMemoryCacheStore(), new MetricsService());
         const service = createService({ auditRepository, cache });
 
         await service.overview(TENANT_ID);

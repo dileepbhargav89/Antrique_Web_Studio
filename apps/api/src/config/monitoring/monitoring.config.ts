@@ -15,5 +15,8 @@ export default registerAs('monitoring', () => {
   return {
     metricsEnabled: env.METRICS_ENABLED,
     metricsToken: env.METRICS_TOKEN,
+    sentryDsn: env.SENTRY_DSN,
+    appVersion: env.APP_VERSION,
+    nodeEnv: env.NODE_ENV,
   };
 });

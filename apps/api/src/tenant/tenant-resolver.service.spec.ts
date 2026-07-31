@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { extractHostnameSlugCandidate, TenantResolver } from './tenant-resolver.service';
 import { OrganizationRepository } from './repositories/organization.repository';
 import { CacheService } from '../cache/cache.service';
+import { InMemoryCacheStore } from '../cache/in-memory-cache.store';
 import { MetricsService } from '../metrics/metrics.service';
 
 const ACTIVE_TENANT = {
@@ -28,7 +29,7 @@ function createResolver(
   {
     nodeEnv = 'development',
     defaultTenantId = ACTIVE_TENANT.id,
-    cache = new CacheService(new MetricsService()),
+    cache = new CacheService(new InMemoryCacheStore(), new MetricsService()),
   } = {},
 ) {
   return new TenantResolver(
@@ -202,7 +203,7 @@ describe('TenantResolver', () => {
       const organizationRepository = createFakeOrganizationRepository({
         findActiveBySlug: jest.fn(async () => ACTIVE_TENANT),
       });
-      const cache = new CacheService(new MetricsService());
+      const cache = new CacheService(new InMemoryCacheStore(), new MetricsService());
       const resolver = createResolver(organizationRepository, { cache });
       const request = createRequest({ hostname: 'antrique.example.app' });
 
@@ -216,7 +217,7 @@ describe('TenantResolver', () => {
       const organizationRepository = createFakeOrganizationRepository({
         findActiveById: jest.fn(async () => ACTIVE_TENANT),
       });
-      const cache = new CacheService(new MetricsService());
+      const cache = new CacheService(new InMemoryCacheStore(), new MetricsService());
       const resolver = createResolver(organizationRepository, { cache });
       const request = createRequest({ headers: { 'x-tenant-id': ACTIVE_TENANT.id } });
 
@@ -231,7 +232,7 @@ describe('TenantResolver', () => {
         findActiveBySlug: jest.fn(async () => ACTIVE_TENANT),
         findActiveById: jest.fn(async () => ACTIVE_TENANT),
       });
-      const cache = new CacheService(new MetricsService());
+      const cache = new CacheService(new InMemoryCacheStore(), new MetricsService());
       const resolver = createResolver(organizationRepository, { cache });
 
       await resolver.resolve(createRequest({ hostname: 'antrique.example.app' }));
@@ -245,7 +246,7 @@ describe('TenantResolver', () => {
       const organizationRepository = createFakeOrganizationRepository({
         findActiveBySlug: jest.fn(async () => ACTIVE_TENANT),
       });
-      const cache = new CacheService(new MetricsService());
+      const cache = new CacheService(new InMemoryCacheStore(), new MetricsService());
       const resolver = createResolver(organizationRepository, { cache });
 
       await resolver.resolve(createRequest({ hostname: 'acme.example.app' }));

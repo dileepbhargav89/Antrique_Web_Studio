@@ -29,7 +29,7 @@ known — see "Production-safety checks" below.
 | `DATABASE_URL` | **yes** | — | Postgres connection string |
 | `DATABASE_SSL` | no | `false` | **must be `true` in production** — see below |
 | `DATABASE_SHADOW_URL` | no | — | only for `prisma migrate dev`'s shadow-DB diffing |
-| `REDIS_URL` | **yes** | — | validated but not yet consumed by any real client — reserved for `cache`/`queue` config domains (both still placeholders; the real in-process `CacheService`/job infrastructure, Milestones 12/14, deliberately do not use Redis) |
+| `REDIS_URL` | **yes** | — | consumed by `RedisService` (`apps/api/src/cache/redis.service.ts`) — a real Redis connection, backing `CacheService` in production since Phase 10, Module 8's revisit. `queue` remains a placeholder (no Redis-backed job queue exists — see `jobs/README.md`). |
 | `RATE_LIMIT_WINDOW_MS` | no | `60000` | app-wide throttle window |
 | `RATE_LIMIT_MAX` | no | `100` | app-wide throttle budget per window |
 | `JWT_ACCESS_SECRET` | **yes** | — | min 32 chars; **must not be the `.env.example` placeholder in production** |
