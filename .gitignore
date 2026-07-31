@@ -24,6 +24,10 @@ apps/api/openapi.json
 
 # Testing
 coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # Env
 .env
