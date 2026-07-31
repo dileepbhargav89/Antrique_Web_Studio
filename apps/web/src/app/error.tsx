@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import * as Sentry from '@sentry/nextjs';
 import { ErrorState } from '@/components/ui/error-state';
 import { normalizeError } from '@/lib/errors/normalize-error';
 
@@ -13,6 +14,7 @@ export default function ErrorPage({
 }) {
   useEffect(() => {
     console.error('Route error boundary caught:', normalizeError(error));
+    Sentry.captureException(error);
   }, [error]);
 
   return (

@@ -1,4 +1,5 @@
 import withBundleAnalyzerInit from '@next/bundle-analyzer';
+import { withSentryConfig } from '@sentry/nextjs';
 
 const withBundleAnalyzer = withBundleAnalyzerInit({ enabled: process.env.ANALYZE === 'true' });
 
@@ -113,4 +114,16 @@ const nextConfig = {
   },
 };
 
-export default withBundleAnalyzer(nextConfig);
+// Phase 10, Module 8 revisit — wraps the build with Sentry's own
+// Next.js-specific webpack plugin (route-manifest injection, tunneling
+// support, source map upload). `org`/`project`/`authToken` are left
+// unset deliberately — no Sentry project is provisioned in this repo's
+// own CI/dev environment yet; the plugin's own documented behavior is to
+// skip source map upload with a console note when `authToken` is
+// missing, not fail the build. Set all three (as env vars, never
+// hardcoded) once a real Sentry project exists.
+export default withSentryConfig(withBundleAnalyzer(nextConfig), {
+  silent: true,
+  widenClientFileUpload: true,
+  disableLogger: true,
+});

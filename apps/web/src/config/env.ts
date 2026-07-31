@@ -20,6 +20,11 @@ export const clientEnvSchema = z.object({
   /** See `lib/auth/tenant.ts` — real per-visitor tenant resolution is an open product
    * decision; until then, one configured tenant id per deployment. */
   NEXT_PUBLIC_TENANT_ID: z.string().optional(),
+  /** A Sentry DSN is not a secret (Sentry's own docs: safe to expose client-side — it
+   * only identifies where to send events, it can't read them back) — this is the same
+   * value `SENTRY_DSN` (config/env.server.ts) holds server-side, just also bundled into
+   * the browser so `sentry.client.config.ts` can report client-side errors too. */
+  NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
 });
 
 export function parseEnv<T extends z.ZodTypeAny>(
@@ -38,6 +43,7 @@ export const clientEnv = parseEnv(clientEnvSchema, {
   NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
   NEXT_PUBLIC_ANALYTICS_ID: process.env.NEXT_PUBLIC_ANALYTICS_ID,
   NEXT_PUBLIC_TENANT_ID: process.env.NEXT_PUBLIC_TENANT_ID,
+  NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
 });
 
 export type ClientEnv = z.infer<typeof clientEnvSchema>;
