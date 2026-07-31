@@ -23,6 +23,7 @@ export class MetricsService {
   private readonly deadLetterQueueSize: Gauge<never>;
   private readonly jobExecutionsTotal: Counter<'job_name' | 'status'>;
   private readonly cacheOperationsTotal: Counter<'cache_name' | 'result'>;
+  private readonly dbTransactionRetriesTotal: Counter<'outcome'>;
 
   constructor() {
     // Node process/event-loop/GC metrics (heap, CPU, event-loop lag,
@@ -116,6 +117,21 @@ export class MetricsService {
       labelNames: ['cache_name', 'result'],
       registers: [this.registry],
     });
+
+    // Phase 10, Module 9 (DB Reliability) — outcome of PrismaService's
+    // transaction-boundary retry wrapper (see database/db-transaction-retry.ts).
+    // A small, fixed outcome set, not per-model/per-tenant — same
+    // cardinality-safe reasoning as `cache_operations_total`'s namespace-only
+    // labeling above. `timed_out` shares this metric rather than getting its
+    // own: a statement-timeout cancellation and a transaction retry are both
+    // "PrismaService transaction boundary had a non-success outcome," and
+    // this module's scope is exactly these two related reliability gaps.
+    this.dbTransactionRetriesTotal = new Counter({
+      name: 'db_transaction_retries_total',
+      help: 'Total number of PrismaService transaction attempts, by terminal outcome',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
   }
 
   recordHttpRequest(method: string, route: string, statusCode: number, durationMs: number): void {
@@ -138,6 +154,12 @@ export class MetricsService {
 
   recordCacheOperation(cacheName: string, result: 'hit' | 'miss'): void {
     this.cacheOperationsTotal.inc({ cache_name: cacheName, result });
+  }
+
+  recordDbTransactionRetry(
+    outcome: 'retried' | 'succeeded_after_retry' | 'exhausted' | 'timed_out',
+  ): void {
+    this.dbTransactionRetriesTotal.inc({ outcome });
   }
 
   getMetrics(): Promise<string> {

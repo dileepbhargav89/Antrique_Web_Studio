@@ -75,6 +75,21 @@ const envSchema = z.object({
     .int({ message: 'DATABASE_POOL_CONNECTION_TIMEOUT_MS must be a whole number' })
     .positive({ message: 'DATABASE_POOL_CONNECTION_TIMEOUT_MS must be greater than 0' })
     .default(5_000),
+  // Phase 10, Module 9 (DB Reliability) — Postgres's own `statement_timeout`
+  // startup parameter (sent by `pg.Pool` for every connection it opens),
+  // previously unset (no ceiling at all). A stuck/runaway query holding a
+  // pooled connection matters more now than it used to: Phase 10 Module 3's
+  // RLS rewrite wraps nearly every model call in its own transaction on
+  // `PrismaService`'s `rawTxClient`, so one stuck query ties up a connection
+  // in the small, shared `DATABASE_POOL_MAX` pool with no ceiling. Default
+  // (10s) sits above `db_query_duration_seconds`'s slowest observed bucket
+  // (dashboard aggregation, Phase 10 Module 8) but low enough to bound worst
+  // case.
+  DATABASE_STATEMENT_TIMEOUT_MS: z.coerce
+    .number({ invalid_type_error: 'DATABASE_STATEMENT_TIMEOUT_MS must be a valid number' })
+    .int({ message: 'DATABASE_STATEMENT_TIMEOUT_MS must be a whole number' })
+    .positive({ message: 'DATABASE_STATEMENT_TIMEOUT_MS must be greater than 0' })
+    .default(10_000),
 
   // security — cross-cutting rate-limit policy, feeds the `security` domain
   RATE_LIMIT_WINDOW_MS: z.coerce

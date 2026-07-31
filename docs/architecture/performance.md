@@ -585,3 +585,107 @@ deterministic service.
 full suite 192 suites/1188 tests, all passing. `openapi.json`
 regenerated and diffed against its pre-change version: zero changes —
 expected, this module touches no HTTP surface.
+
+## 12. Phase 10, Module 9 — DB Reliability (2026-07-31)
+
+**Scope.** Two genuine gaps found by audit of `PrismaService`
+(`apps/api/src/database/prisma.service.ts`): no ceiling on how long a
+query can hold a pooled connection, and no retry on a transient
+transaction failure. Both matter more than they used to, specifically
+because §3 (Module 3, RLS) made a transaction the default path for
+nearly every model call, on the small, shared `DATABASE_POOL_MAX` pool.
+
+**Statement timeout.** New `DATABASE_STATEMENT_TIMEOUT_MS`
+(`env.validation.ts`, default 10000ms), passed as Postgres's own
+`statement_timeout` startup parameter to **both** `PrismaPg` adapters
+`PrismaService` constructs (the primary client and `rawTxClient` — see
+that class's own header comment for why two clients exist). Previously
+unset entirely, so a stuck/runaway query held a pooled connection with
+no ceiling; now bounded, and — because `rawTxClient` runs virtually
+every real query inside its own transaction — a timeout there frees the
+connection rather than the whole pool degrading.
+
+**Retryable-error classification.** New `isRetryableTransactionError()`/
+`isStatementTimeoutError()` in `apps/api/src/utils/prisma-error.util.ts`,
+alongside that file's existing `isUniqueConstraintViolation()`/
+`isCheckConstraintViolation()`. **Built from live testing against a real
+Postgres, not generic Prisma documentation** — the documented older-
+architecture codes (`P2034` for write conflicts, `P1001`/`P1017` for
+connection errors) were tried first and confirmed, live, to NOT be what
+this Prisma version (7.8.0, `@prisma/adapter-pg` + the newer
+client-engine-runtime) actually throws. Forcing a real deadlock (both
+via a raw `$executeRawUnsafe` advisory-lock test and via two genuine
+`role.update()` calls inside concurrent `$transaction()`s), a real
+`statement_timeout` cancellation, a real admin-terminated connection, and
+a real total-connection-failure all surfaced as either an unwrapped
+`DriverAdapterError` (model-delegate operations) or a
+`PrismaClientKnownRequestError{code: 'P2010'}` (raw SQL — every raw
+driver-level failure gets this same generic "Raw query failed" code
+regardless of cause) with the real Postgres SQLSTATE nested at
+`.cause.code` / `.meta.driverAdapterError.cause.code` — never as a
+dedicated top-level P-code. Retryable: SQLSTATE `40001`/`40P01`
+(serialization failure/deadlock — nothing committed, safe to retry from
+scratch), `57P01` (admin-terminated connection), and
+`cause.kind === 'DatabaseNotReachable'` (total connection failure, no
+SQLSTATE at all). Excluded: constraint violations (their own dedicated
+P-codes, never routed through `P2010`), RLS/permission errors, `P2028`
+(the exact code this codebase's own `PrismaService` constructor comment
+ties to a documented RLS-hook recursion bug — retrying that would mask a
+structural bug as a transient one), and `57014` (statement timeout —
+its own classifier, deliberately excluded from retry since retrying an
+already-too-slow query just repeats the same timeout).
+
+**Retry wrapper.** New `withTransactionRetry()`
+(`apps/api/src/database/db-transaction-retry.ts`), wrapping the two real
+`rawTxClient.$transaction(...)` call sites in `PrismaService` (the
+constructor's `$allOperations` RLS hook, and the `$transaction()`
+override's function-form branch — not the array-form branch, which
+doesn't open its own `rawTxClient` transaction). Reuses Phase 10 Module
+7's (Background Jobs) `RetryPolicy` type and `hasAttemptsRemaining()`/
+`delayBeforeNextAttemptMs()` helpers (`jobs/retry-policy.ts`, unmodified)
+with a new, DB-tuned policy instance (`maxAttempts: 3, baseDelayMs: 20,
+maxDelayMs: 200`) — small, fast delays, deliberately not
+`jobs/retry-policy.ts`'s own `DEFAULT_RETRY_POLICY` (up to a 30s cap),
+which is tuned for a background job nobody is actively waiting on, not a
+request a user is. Safe specifically because it retries at the
+transaction boundary: a failed transaction has committed nothing, by
+Postgres's own definition of the retryable SQLSTATEs above. Caller-
+supplied transaction callbacks were spot-checked (not structurally
+enforced) for non-DB side effects a retry would double-execute — none
+found across this codebase's real `$transaction`/`runInTransaction()`
+callers (Order/Invoice/Payment/Lead/FollowUp/Quotation) at the time this
+was written.
+
+**Observability.** New `db_transaction_retries_total` (Counter, label
+`outcome` ∈ `retried`/`succeeded_after_retry`/`exhausted`/`timed_out`) —
+same cardinality-safe reasoning as §11's `cache_operations_total` (a
+small, fixed label set, never a raw query/tenant id). `timed_out` shares
+this metric rather than getting its own: a statement-timeout
+cancellation and a transaction retry are both "PrismaService transaction
+boundary had a non-success outcome," and splitting them into two metrics
+would exceed this module's actual scope.
+
+**Deliberately NOT done.** Health checks (liveness/readiness/startup)
+and pool sizing/timeouts were already built (Milestone 14 / Module 1) —
+untouched. Backup/restore remains a known, already-documented infra-
+level gap (see "Backup strategy" in `docs/architecture/release.md`) for
+a later Docker/infra module, not duplicated here. Migration safety
+(expand/contract discipline) is already documented in `release.md`'s
+"Migration workflow" with an existing CI check — not a real gap.
+`lock_timeout` was considered alongside `statement_timeout` and
+deferred — out of this module's scope.
+
+**Validation.** `pnpm --filter @antrique/api typecheck`/`lint` clean;
+full suite 193 suites/1212 tests, all passing (21 new: statement-timeout
+config coercion/validation, both error classifiers against the live-
+verified shapes above, `withTransactionRetry()`'s retry/exhaust/
+non-retryable/timeout paths, and the new metric). `openapi.json`
+regenerated and diffed against its pre-change version: zero changes —
+expected, this module touches no HTTP surface. Live-verified against a
+real dev Postgres (throwaway scripts, deleted after use, not committed):
+a `SELECT pg_sleep()` beyond `DATABASE_STATEMENT_TIMEOUT_MS` actually
+cancels with SQLSTATE `57014` rather than hanging; a real deadlock
+forced via two concurrent `role.update()` transactions (temporary rows,
+cleaned up after) produces the exact `DriverAdapterError` shape the
+classifier now checks; `pg_terminate_backend()` mid-query and a totally
+unreachable host both confirmed the two connection-failure paths above.

@@ -137,6 +137,33 @@ describe('MetricsService', () => {
     });
   });
 
+  // Phase 10, Module 9 (DB Reliability).
+  describe('recordDbTransactionRetry()', () => {
+    it('increments db_transaction_retries_total with the given outcome', async () => {
+      const metrics = new MetricsService();
+
+      metrics.recordDbTransactionRetry('retried');
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain('db_transaction_retries_total{outcome="retried"} 1');
+    });
+
+    it('keeps each outcome as a separate series', async () => {
+      const metrics = new MetricsService();
+
+      metrics.recordDbTransactionRetry('retried');
+      metrics.recordDbTransactionRetry('succeeded_after_retry');
+      metrics.recordDbTransactionRetry('exhausted');
+      metrics.recordDbTransactionRetry('timed_out');
+
+      const text = await metrics.getMetrics();
+      expect(text).toContain('db_transaction_retries_total{outcome="retried"} 1');
+      expect(text).toContain('db_transaction_retries_total{outcome="succeeded_after_retry"} 1');
+      expect(text).toContain('db_transaction_retries_total{outcome="exhausted"} 1');
+      expect(text).toContain('db_transaction_retries_total{outcome="timed_out"} 1');
+    });
+  });
+
   it('two independent instances never share state (local Registry, not the prom-client default)', async () => {
     const first = new MetricsService();
     const second = new MetricsService();

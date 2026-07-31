@@ -13,5 +13,6 @@ export default registerAs('database', () => {
     poolMax: env.DATABASE_POOL_MAX,
     poolIdleTimeoutMs: env.DATABASE_POOL_IDLE_TIMEOUT_MS,
     poolConnectionTimeoutMs: env.DATABASE_POOL_CONNECTION_TIMEOUT_MS,
+    statementTimeoutMs: env.DATABASE_STATEMENT_TIMEOUT_MS,
   };
 });

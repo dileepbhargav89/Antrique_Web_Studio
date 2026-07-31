@@ -39,12 +39,26 @@ describe('validateEnv', () => {
       SWAGGER_PATH: '/api/docs',
       HEALTH_PATH: '/health',
       METRICS_ENABLED: true,
+      DATABASE_STATEMENT_TIMEOUT_MS: 10_000,
       JWT_ACCESS_TOKEN_TTL: 900,
       JWT_REFRESH_TOKEN_TTL: 2592000,
       HASH_MEMORY_COST: 19456,
       HASH_TIME_COST: 2,
       HASH_PARALLELISM: 1,
     });
+  });
+
+  it('coerces a numeric DATABASE_STATEMENT_TIMEOUT_MS string to a number', () => {
+    const validateEnv = freshValidateEnv();
+    const env = validateEnv({ ...REQUIRED_ENV, DATABASE_STATEMENT_TIMEOUT_MS: '15000' });
+    expect(env.DATABASE_STATEMENT_TIMEOUT_MS).toBe(15000);
+  });
+
+  it('rejects a non-positive DATABASE_STATEMENT_TIMEOUT_MS', () => {
+    const validateEnv = freshValidateEnv();
+    expect(() => validateEnv({ ...REQUIRED_ENV, DATABASE_STATEMENT_TIMEOUT_MS: '0' })).toThrow(
+      /DATABASE_STATEMENT_TIMEOUT_MS must be greater than 0/,
+    );
   });
 
   it('coerces a numeric PORT string to a number', () => {

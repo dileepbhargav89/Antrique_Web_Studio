@@ -6,6 +6,7 @@ import databaseConfig from '../config/database/database.config';
 import { LOGGER, Logger } from '../logging';
 import { TenantRlsContextService } from './tenant-rls-context.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { withTransactionRetry } from './db-transaction-retry';
 
 // Milestone 12 (Performance Engineering) — "database duration"/"slow
 // query logging." A query taking longer than this is unusual enough on
@@ -99,6 +100,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         max: dbConfig.poolMax,
         idleTimeoutMillis: dbConfig.poolIdleTimeoutMs,
         connectionTimeoutMillis: dbConfig.poolConnectionTimeoutMs,
+        // Phase 10, Module 9 (DB Reliability) — Postgres's own
+        // `statement_timeout` startup parameter, sent for every connection
+        // this pool opens. Previously unset (no ceiling at all): a stuck or
+        // runaway query held a pooled connection indefinitely. See
+        // `rawTxClient`'s own adapter below for why both clients need this,
+        // not just this one.
+        statement_timeout: dbConfig.statementTimeoutMs,
       }),
       // `emit: 'event'` (not `'stdout'`) — routes every query event
       // through `this.$on('query', ...)` below instead of printing
@@ -122,6 +130,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         max: dbConfig.poolMax,
         idleTimeoutMillis: dbConfig.poolIdleTimeoutMs,
         connectionTimeoutMillis: dbConfig.poolConnectionTimeoutMs,
+        // Same statement timeout as the primary client's adapter above —
+        // every real model query now runs through THIS client (see the
+        // `$allOperations` hook below), so a runaway query inside one of
+        // its own SET-LOCAL-wrapped transactions needs the same ceiling, or
+        // this pool (not the primary one) is the one that actually
+        // exhausts under a stuck query.
+        statement_timeout: dbConfig.statementTimeoutMs,
       }),
       // Same "database duration"/"slow query logging" treatment as the
       // primary client below — every real query now runs through
@@ -181,17 +196,28 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
             if (!tenantId || !model) {
               return query(args);
             }
-            return this.rawTxClient.$transaction(async (tx) => {
-              await tx.$executeRawUnsafe(
-                `SELECT set_config($1, $2, true)`,
-                TENANT_RLS_SETTING,
-                tenantId,
-              );
-              const delegate = (
-                tx as unknown as Record<string, Record<string, (a: unknown) => unknown>>
-              )[model]!;
-              return delegate[operation]!(args);
-            });
+            // Phase 10, Module 9 (DB Reliability) — safe to retry the whole
+            // transaction from scratch on a transient failure (write
+            // conflict/deadlock/connection blip): nothing committed if it
+            // fails, by Postgres's own definition of those SQLSTATEs (see
+            // isRetryableTransactionError()'s own comment). Does not retry
+            // constraint violations or the RLS-recursion-bug code (P2028) —
+            // same function, same exclusions.
+            return withTransactionRetry(
+              () =>
+                this.rawTxClient.$transaction(async (tx) => {
+                  await tx.$executeRawUnsafe(
+                    `SELECT set_config($1, $2, true)`,
+                    TENANT_RLS_SETTING,
+                    tenantId,
+                  );
+                  const delegate = (
+                    tx as unknown as Record<string, Record<string, (a: unknown) => unknown>>
+                  )[model]!;
+                  return delegate[operation]!(args);
+                }),
+              { metrics: this.metrics, logger: this.logger },
+            );
           },
         },
       },
@@ -244,16 +270,27 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     if (typeof arg === 'function') {
       const tenantId = this.tenantRlsContext.getContext()?.tenantId;
       const fn = arg as (tx: Prisma.TransactionClient) => Promise<unknown>;
-      return this.rawTxClient.$transaction(async (tx) => {
-        if (tenantId) {
-          await tx.$executeRawUnsafe(
-            `SELECT set_config($1, $2, true)`,
-            TENANT_RLS_SETTING,
-            tenantId,
-          );
-        }
-        return fn(tx);
-      }, options as never);
+      // Phase 10, Module 9 (DB Reliability) — same retry-at-the-transaction-
+      // -boundary reasoning as the constructor's `$allOperations` hook
+      // above; see that call site's comment. Caller-supplied `fn(tx)`
+      // callbacks were spot-checked (not structurally enforced) for non-DB
+      // side effects a retry would double-execute — none found across this
+      // codebase's real `runInTransaction()` callers (Order/Invoice/
+      // Payment/Lead/FollowUp/Quotation) at the time this was written.
+      return withTransactionRetry(
+        () =>
+          this.rawTxClient.$transaction(async (tx) => {
+            if (tenantId) {
+              await tx.$executeRawUnsafe(
+                `SELECT set_config($1, $2, true)`,
+                TENANT_RLS_SETTING,
+                tenantId,
+              );
+            }
+            return fn(tx);
+          }, options as never),
+        { metrics: this.metrics, logger: this.logger },
+      );
     }
     return super.$transaction(arg as never, options as never);
   }

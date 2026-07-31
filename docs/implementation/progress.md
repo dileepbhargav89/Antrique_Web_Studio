@@ -98,6 +98,50 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 9 (DB Reliability) (`apps/api`)** — audited
+  `PrismaService` (`database/prisma.service.ts`) for genuine reliability
+  gaps and found two: no ceiling on how long a query can hold a pooled
+  connection, and no retry on a transient transaction failure — both
+  sharper than they'd otherwise be because Module 3's RLS rewrite made a
+  transaction the default path for nearly every model call, on the
+  small, shared `DATABASE_POOL_MAX` pool. Added `DATABASE_STATEMENT_TIMEOUT_MS`
+  (default 10s), wired as Postgres's own `statement_timeout` into both
+  `PrismaPg` adapters `PrismaService` constructs. Added a
+  retry-with-backoff wrapper (`withTransactionRetry()`, new
+  `database/db-transaction-retry.ts`) around the two real
+  `rawTxClient.$transaction(...)` call sites — safe specifically because
+  retrying at the transaction boundary re-runs from scratch, and nothing
+  committed on a genuinely transient failure. **The classifier for which
+  errors are "transient" was built from live testing against a real
+  Postgres, not generic Prisma documentation** — the textbook Prisma
+  error codes for write conflicts/deadlocks/connection errors (`P2034`,
+  `P1001`, `P1017`) were tried first and confirmed, live, to be WRONG for
+  this Prisma version (7.8.0's client-engine-runtime + `@prisma/adapter-pg`):
+  a real deadlock (forced two ways — a raw advisory-lock test and two
+  genuine concurrent `role.update()` transactions), a real statement-
+  timeout cancellation, a real admin-terminated connection, and a real
+  total-connection-failure all surfaced instead as an unwrapped
+  `DriverAdapterError` or a generic `PrismaClientKnownRequestError{code:
+  'P2010'}` ("Raw query failed," regardless of actual cause), with the
+  real Postgres SQLSTATE nested several levels deep
+  (`.cause.code`/`.meta.driverAdapterError.cause.code`) — never as a
+  dedicated top-level P-code. `isRetryableTransactionError()`/
+  `isStatementTimeoutError()` (new, `utils/prisma-error.util.ts`) were
+  rewritten around this real shape before being called done; this is
+  exactly the "static reading isn't enough, verify live" lesson this
+  codebase's own `PrismaService` constructor comment already documents
+  from the Module 3 RLS-recursion-bug discovery, now repeated for the
+  same class of investigation. New `db_transaction_retries_total` metric
+  (Counter, `outcome` label — `retried`/`succeeded_after_retry`/
+  `exhausted`/`timed_out`), same cardinality-safe reasoning as Module 8's
+  `cache_operations_total`. Deliberately NOT done: Redis/distributed
+  anything (still single-instance, same reasoning as Modules 7/8),
+  backup/restore (already a documented infra-level gap for a later
+  Docker/infra module), migration safety (already documented with an
+  existing CI check — not a real gap). `pnpm --filter @antrique/api
+  typecheck`/`lint` clean; full suite 193 suites/1212 tests, all passing
+  (21 new). `openapi.json` regenerated and diffed — zero changes (no new
+  HTTP routes). Full writeup: `docs/architecture/performance.md` §12.
 - **Phase 10, Module 8 (Caching) (`apps/api`)** — audited the existing
   `CacheService` (Milestone 12's in-memory, TTL-based, no-Redis
   abstraction) against this module's own remaining scope: hit/miss
@@ -4576,7 +4620,16 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
    uncached read paths (`TenantResolver.resolve()`,
    `DashboardService.overview()`), both 60s TTL. Found and fixed a real
    DI ripple in two controller specs along the way. **Module 9 (DB
-   Reliability) is next.**
+   Reliability) is done (2026-07-31)** — see this file's own newest log
+   entry and `docs/architecture/performance.md` §12: a configurable
+   Postgres `statement_timeout`, a retry-with-backoff wrapper around
+   PrismaService's real transaction call sites, and a new
+   `db_transaction_retries_total` metric. Notably, the retryable-error
+   classifier had to be rebuilt from live testing against a real
+   Postgres after the textbook Prisma error codes (P2034/P1001/P1017)
+   were confirmed, live, to not be what this Prisma version's
+   client-engine-runtime actually throws — see that section for the real
+   error shape. **Module 10 (CI/CD) is next.**
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models
