@@ -1,8 +1,21 @@
 import { Injectable } from '@nestjs/common';
+import { MetricsService } from '../metrics/metrics.service';
 
 interface CacheEntry<T> {
   value: T;
   expiresAt: number;
+}
+
+// Phase 10, Module 8 (Caching) — the NAMESPACE segment of a cache key
+// (`"<namespace>:<rest>"`, this class's own already-documented
+// convention) — a fixed, small label for `cache_operations_total`, never
+// the full key (which carries a tenantId/email/date range and would be
+// an unbounded-cardinality label, the exact mistake HTTP route labeling
+// already guards against — see `MetricsService`'s own comment). A key
+// with no `:` at all (shouldn't happen given the convention, but
+// `String.prototype.split` never throws) labels as the whole key.
+function cacheNamespace(key: string): string {
+  return key.split(':')[0] ?? key;
 }
 
 // Milestone 12 (Performance Engineering) — "Implement a reusable cache
@@ -26,6 +39,8 @@ interface CacheEntry<T> {
 @Injectable()
 export class CacheService {
   private readonly store = new Map<string, CacheEntry<unknown>>();
+
+  constructor(private readonly metrics: MetricsService) {}
 
   // Returns `undefined` for both "never set" and "expired" — a caller
   // never needs to distinguish the two, only whether a fresh value must
@@ -85,8 +100,10 @@ export class CacheService {
   async getOrLoad<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
     const cached = this.get<T>(key);
     if (cached !== undefined) {
+      this.metrics.recordCacheOperation(cacheNamespace(key), 'hit');
       return cached;
     }
+    this.metrics.recordCacheOperation(cacheNamespace(key), 'miss');
     const value = await load();
     this.set(key, value, ttlMs);
     return value;

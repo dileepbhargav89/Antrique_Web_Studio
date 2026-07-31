@@ -10,6 +10,8 @@ import { FollowUpRepository } from '../crm/repositories/follow-up.repository';
 import { ProductRepository } from '../catalog/repositories/product.repository';
 import { PerformanceLogger, Logger } from '../../logging';
 import { Prisma } from '../../../generated/prisma/client';
+import { CacheService } from '../../cache/cache.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 const TENANT_ID = '00000000-0000-7000-8000-000000000001';
 
@@ -103,6 +105,7 @@ describe('DashboardService', () => {
       leadRepository?: LeadRepository;
       followUpRepository?: FollowUpRepository;
       productRepository?: ProductRepository;
+      cache?: CacheService;
     } = {},
   ) {
     return new DashboardService(
@@ -115,6 +118,12 @@ describe('DashboardService', () => {
       overrides.followUpRepository ?? createFakeFollowUpRepository(),
       overrides.productRepository ?? createFakeProductRepository(),
       createFakePerformanceLogger(),
+      // Phase 10, Module 8 (Caching) — a real, fresh-per-call
+      // `CacheService`, not a mock: its own local `Map` (see that
+      // class's own comment) makes it cheap and safe to construct fresh
+      // per test, and the caching tests below need the real
+      // get/set/TTL behavior.
+      overrides.cache ?? new CacheService(new MetricsService()),
     );
   }
 
@@ -218,6 +227,42 @@ describe('DashboardService', () => {
         { key: 'revenue', title: 'Revenue', type: 'KPI', config: {}, sortOrder: 0 },
       ]);
       expect(result.systemErrorCount24h).toBe(3);
+    });
+
+    // Phase 10, Module 8 (Caching).
+    describe('caching', () => {
+      it('does not re-aggregate for a second overview() call with the same tenant/date-range', async () => {
+        const auditRepository = createFakeAuditRepository();
+        const cache = new CacheService(new MetricsService());
+        const service = createService({ auditRepository, cache });
+
+        await service.overview(TENANT_ID);
+        await service.overview(TENANT_ID);
+
+        expect(auditRepository.countSystemEventsBySeverity).toHaveBeenCalledTimes(1);
+      });
+
+      it('re-aggregates for a different tenant, even with the same date range', async () => {
+        const auditRepository = createFakeAuditRepository();
+        const cache = new CacheService(new MetricsService());
+        const service = createService({ auditRepository, cache });
+
+        await service.overview(TENANT_ID);
+        await service.overview('00000000-0000-7000-8000-000000000099');
+
+        expect(auditRepository.countSystemEventsBySeverity).toHaveBeenCalledTimes(2);
+      });
+
+      it('re-aggregates for a different date range, even for the same tenant', async () => {
+        const auditRepository = createFakeAuditRepository();
+        const cache = new CacheService(new MetricsService());
+        const service = createService({ auditRepository, cache });
+
+        await service.overview(TENANT_ID);
+        await service.overview(TENANT_ID, new Date('2026-01-01'), new Date('2026-01-31'));
+
+        expect(auditRepository.countSystemEventsBySeverity).toHaveBeenCalledTimes(2);
+      });
     });
   });
 });

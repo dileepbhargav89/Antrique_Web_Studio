@@ -5,6 +5,33 @@ import { OrganizationRepository } from './repositories/organization.repository';
 import appConfig from '../config/app/app.config';
 import defaultTenantConfig from './config/default-tenant.config';
 import { TENANT_ID_HEADER } from './tenant.constant';
+import { CacheService } from '../cache/cache.service';
+
+// Phase 10, Module 8 (Caching) — this codebase's hottest uncached read
+// path (confirmed by audit): every single request, authenticated or
+// not, resolves a tenant before anything else runs. 60s — the same
+// order of magnitude `AuthorizationService`'s own role-resolution cache
+// already uses (`ROLE_CACHE_TTL_MS`) — balances real query reduction on
+// the hottest path in this API against how stale an org's active-flag/
+// name/slug is allowed to be after a rare admin change (deactivating a
+// tenant, renaming it). Not a correctness risk the way caching
+// transactional/business state would be — see `CacheService`'s own
+// "what to cache / what never to cache" rule.
+//
+// `getOrLoad()` caches whatever the repository call returns, including
+// `null` ("no active tenant matches this candidate") — a deliberate
+// choice, not an oversight: a `null` result for the hostname/header
+// path already falls through to the next resolution priority
+// regardless of whether it came from cache or a fresh query, so the
+// per-request OUTCOME is unaffected; caching it too means a bogus/
+// probing candidate (a made-up subdomain, a guessed tenant-id header)
+// doesn't re-query the database on every single attempt within the
+// window. The one real trade-off: a brand-new tenant is invisible via
+// its own hostname for up to 60s immediately after creation (a rare,
+// admin-timed operation, not something a user is watching happen in
+// real time — and the `X-Tenant-ID` header path, keyed independently,
+// isn't affected).
+const TENANT_RESOLVE_CACHE_TTL_MS = 60_000;
 
 export type TenantResolutionSource = 'hostname' | 'header' | 'default';
 
@@ -58,12 +85,17 @@ export class TenantResolver {
     private readonly app: ConfigType<typeof appConfig>,
     @Inject(defaultTenantConfig.KEY)
     private readonly defaultTenant: ConfigType<typeof defaultTenantConfig>,
+    private readonly cache: CacheService,
   ) {}
 
   async resolve(request: Request): Promise<ResolvedTenant> {
     const hostnameCandidate = extractHostnameSlugCandidate(request.hostname);
     if (hostnameCandidate) {
-      const tenant = await this.organizationRepository.findActiveBySlug(hostnameCandidate);
+      const tenant = await this.cache.getOrLoad(
+        `tenant-resolve:slug:${hostnameCandidate}`,
+        TENANT_RESOLVE_CACHE_TTL_MS,
+        () => this.organizationRepository.findActiveBySlug(hostnameCandidate),
+      );
       if (tenant) {
         return { id: tenant.id, name: tenant.name, slug: tenant.slug, source: 'hostname' };
       }
@@ -71,14 +103,22 @@ export class TenantResolver {
 
     const headerTenantId = firstHeader(request.headers[TENANT_ID_HEADER]);
     if (headerTenantId) {
-      const tenant = await this.organizationRepository.findActiveById(headerTenantId);
+      const tenant = await this.cache.getOrLoad(
+        `tenant-resolve:id:${headerTenantId}`,
+        TENANT_RESOLVE_CACHE_TTL_MS,
+        () => this.organizationRepository.findActiveById(headerTenantId),
+      );
       if (tenant) {
         return { id: tenant.id, name: tenant.name, slug: tenant.slug, source: 'header' };
       }
     }
 
     if (this.app.nodeEnv === 'development') {
-      const tenant = await this.organizationRepository.findActiveById(this.defaultTenant.id);
+      const tenant = await this.cache.getOrLoad(
+        `tenant-resolve:id:${this.defaultTenant.id}`,
+        TENANT_RESOLVE_CACHE_TTL_MS,
+        () => this.organizationRepository.findActiveById(this.defaultTenant.id),
+      );
       if (tenant) {
         return { id: tenant.id, name: tenant.name, slug: tenant.slug, source: 'default' };
       }

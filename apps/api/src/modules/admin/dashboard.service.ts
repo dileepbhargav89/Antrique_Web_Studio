@@ -17,8 +17,21 @@ import {
   SystemEventSeverity,
 } from '../../../generated/prisma/enums';
 import { PerformanceLogger } from '../../logging';
+import { CacheService } from '../../cache/cache.service';
 
 export type DashboardKpiModule = (typeof DASHBOARD_KPI_MODULES)[number];
+
+// Phase 10, Module 8 (Caching) — `overview()` is this codebase's own
+// heaviest service-layer operation (see that method's own comment,
+// unchanged); a 60s cache — the same order of magnitude
+// `AuthorizationService`'s role cache and `TenantResolver`'s own new
+// tenant-resolution cache both use — turns repeated dashboard views
+// (an admin refreshing the page, or several admins looking at the same
+// tenant) from N full aggregations into 1 every 60s. Tenant-scoped AND
+// date-range-scoped in the cache key (see `overview()` itself) — a
+// custom `dateFrom`/`dateTo` query never collides with, or serves stale
+// data for, the default (no-range) view.
+const DASHBOARD_OVERVIEW_CACHE_TTL_MS = 60_000;
 
 // Business logic + cross-module aggregation. This milestone's own
 // "Dashboard" business responsibilities live here, one private method
@@ -53,6 +66,7 @@ export class DashboardService {
     private readonly followUpRepository: FollowUpRepository,
     private readonly productRepository: ProductRepository,
     private readonly performanceLogger: PerformanceLogger,
+    private readonly cache: CacheService,
   ) {}
 
   async getKpis(
@@ -91,38 +105,47 @@ export class DashboardService {
     dateFrom?: Date,
     dateTo?: Date,
   ): Promise<DashboardOverviewResponseDto> {
-    return this.performanceLogger.measureAsync(
-      'DashboardService.overview',
-      async () => {
-        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const [modules, widgets, systemErrorCount24h] = await Promise.all([
-          Promise.all(
-            DASHBOARD_KPI_MODULES.map(async (module) => {
-              const metrics = await this.computeMetrics(module, tenantId, dateFrom, dateTo);
-              return new DashboardKpiResponseDto(module, metrics);
-            }),
-          ),
-          this.dashboardRepository.findActiveWidgets(tenantId),
-          this.auditRepository.countSystemEventsBySeverity(
-            tenantId,
-            SystemEventSeverity.ERROR,
-            since24h,
-          ),
-        ]);
+    // Phase 10, Module 8 (Caching) — the cache wraps the
+    // `PerformanceLogger` timing, not the other way around: a cache HIT
+    // legitimately did no real aggregation work, so no
+    // "DashboardService.overview" duration log fires for it — only a
+    // genuine computation (a miss) gets timed, which is what that log
+    // line is actually meant to measure.
+    const cacheKey = `dashboard-overview:${tenantId}:${dateFrom?.toISOString() ?? 'none'}:${dateTo?.toISOString() ?? 'none'}`;
+    return this.cache.getOrLoad(cacheKey, DASHBOARD_OVERVIEW_CACHE_TTL_MS, () =>
+      this.performanceLogger.measureAsync(
+        'DashboardService.overview',
+        async () => {
+          const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          const [modules, widgets, systemErrorCount24h] = await Promise.all([
+            Promise.all(
+              DASHBOARD_KPI_MODULES.map(async (module) => {
+                const metrics = await this.computeMetrics(module, tenantId, dateFrom, dateTo);
+                return new DashboardKpiResponseDto(module, metrics);
+              }),
+            ),
+            this.dashboardRepository.findActiveWidgets(tenantId),
+            this.auditRepository.countSystemEventsBySeverity(
+              tenantId,
+              SystemEventSeverity.ERROR,
+              since24h,
+            ),
+          ]);
 
-        return new DashboardOverviewResponseDto(
-          modules,
-          widgets.map((w) => ({
-            key: w.key,
-            title: w.title,
-            type: w.type,
-            config: w.config,
-            sortOrder: w.sortOrder,
-          })),
-          systemErrorCount24h,
-        );
-      },
-      { category: 'service', metadata: { tenantId } },
+          return new DashboardOverviewResponseDto(
+            modules,
+            widgets.map((w) => ({
+              key: w.key,
+              title: w.title,
+              type: w.type,
+              config: w.config,
+              sortOrder: w.sortOrder,
+            })),
+            systemErrorCount24h,
+          );
+        },
+        { category: 'service', metadata: { tenantId } },
+      ),
     );
   }
 

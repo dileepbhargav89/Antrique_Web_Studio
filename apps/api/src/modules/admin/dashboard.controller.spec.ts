@@ -13,6 +13,8 @@ import { TokenService } from '../../jwt/token.service';
 import { AuthorizationService } from '../../authorization/authorization.service';
 import { AUDIT_LOGGER, RequestContextService } from '../../logging';
 import { PerformanceLogger } from '../../logging';
+import { CacheService } from '../../cache/cache.service';
+import { MetricsService } from '../../metrics/metrics.service';
 import { Prisma } from '../../../generated/prisma/client';
 
 const TENANT: { tenantId: string } = { tenantId: '00000000-0000-7000-8000-000000000001' };
@@ -82,6 +84,7 @@ describe('DashboardController', () => {
           provide: PerformanceLogger,
           useValue: { measureAsync: (_op: string, fn: () => unknown) => fn() },
         },
+        { provide: CacheService, useValue: new CacheService(new MetricsService()) },
       ],
     }).compile();
 

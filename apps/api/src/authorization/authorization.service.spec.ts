@@ -3,6 +3,7 @@ import { RoleRepository } from './repositories/role.repository';
 import { PermissionRepository } from './repositories/permission.repository';
 import { AuthorizationCache } from '../types/authorization-cache.type';
 import { CacheService } from '../cache/cache.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 const TENANT_ID = '00000000-0000-7000-8000-000000000001';
 
@@ -19,7 +20,11 @@ const TENANT_ID = '00000000-0000-7000-8000-000000000001';
 // leakage" test at the bottom for the per-request AuthorizationCache
 // layer).
 function createService(roleRepository: RoleRepository, permissionRepository: PermissionRepository) {
-  return new AuthorizationService(roleRepository, permissionRepository, new CacheService());
+  return new AuthorizationService(
+    roleRepository,
+    permissionRepository,
+    new CacheService(new MetricsService()),
+  );
 }
 
 function createFakeRoleRepository(roles: Array<{ id: string; key: string }>) {

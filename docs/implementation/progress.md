@@ -98,6 +98,46 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 8 (Caching) (`apps/api`)** — audited the existing
+  `CacheService` (Milestone 12's in-memory, TTL-based, no-Redis
+  abstraction) against this module's own remaining scope: hit/miss
+  observability and applying it to the hottest genuinely-uncached read
+  paths. Added `cache_operations_total` (Counter, labeled `cache_name`/
+  `result`) to `MetricsService`, wired from `CacheService.getOrLoad()`
+  itself so every cache consumer gets the metric for free — labeled by
+  the key's NAMESPACE segment only (`"tenant-resolve"`/
+  `"dashboard-overview"`/etc.), never the full key, the same
+  unbounded-cardinality guard `http_requests_total`'s route labeling
+  already uses. Applied caching to two real hot paths found by audit:
+  `TenantResolver.resolve()` (this codebase's single hottest uncached
+  read — every request, authenticated or not, resolves a tenant before
+  anything else runs; 60s TTL, matching `AuthorizationService`'s
+  existing role-cache order of magnitude; caches a `null` "no match"
+  result too, deliberately, so a probing/bogus tenant candidate doesn't
+  re-query on every attempt within the window) and
+  `DashboardService.overview()` (this codebase's heaviest
+  service-layer aggregation; 60s TTL, tenant+date-range-scoped cache
+  key so a custom date range never collides with or serves stale data
+  for the default view; the cache wraps `PerformanceLogger`'s timing,
+  not the other way around, so a hit correctly logs no aggregation
+  duration). **Ripple effect found and fixed**: both new constructor
+  dependencies (`CacheService` on `TenantResolver` and
+  `DashboardService`) broke `dashboard.controller.spec.ts` and
+  `report.controller.spec.ts` — both build `DashboardService` through a
+  real `Test.createTestingModule` DI graph, and neither had
+  `CacheService` wired in. Fixed both by providing a real
+  `CacheService(new MetricsService())` instance rather than a mock,
+  matching `dashboard.service.spec.ts`'s and `authorization.service.spec.ts`'s
+  own established pattern for this simple, deterministic service.
+  Redis-backed distributed caching audited and deliberately NOT built:
+  this is a single-instance-per-tenant-request-path deployment today
+  (same reasoning Module 7 already applied to a Redis-backed job
+  queue) — in-memory-per-process is sufficient until a genuine
+  multi-instance topology exists. `pnpm --filter @antrique/api
+  typecheck`/`lint` clean; full suite 192 suites/1188 tests, all
+  passing; `openapi.json` regenerated and diffed — zero changes (no
+  new HTTP routes, purely internal). Full writeup:
+  `docs/architecture/performance.md` §11.
 - **Phase 10, Module 7 (Background Jobs) (`apps/api`)** — audited
   scheduling, real jobs, and the queue backend against what
   `apps/api/src/jobs/` already provides (in-process `JobRunner`, retry+
@@ -4529,7 +4569,14 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
    modules sequentially (complete one, move to the next, no per-module
    check-in needed): caching, DB reliability, CI/CD, Docker/infra,
    testing, docs, tech debt, readiness report (full spec from the user,
-   not yet copied into its own doc) — **Module 8 (Caching) is next**.
+   not yet copied into its own doc). **Module 8 (Caching) is DONE
+   (2026-07-30)** — see this file's own newest log entry and
+   `docs/architecture/performance.md` §11: cache hit/miss metrics
+   (`cache_operations_total`), and caching applied to the two hottest
+   uncached read paths (`TenantResolver.resolve()`,
+   `DashboardService.overview()`), both 60s TTL. Found and fixed a real
+   DI ripple in two controller specs along the way. **Module 9 (DB
+   Reliability) is next.**
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

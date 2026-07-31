@@ -22,6 +22,7 @@ export class MetricsService {
   private readonly dbQueryDurationSeconds: Histogram<never>;
   private readonly deadLetterQueueSize: Gauge<never>;
   private readonly jobExecutionsTotal: Counter<'job_name' | 'status'>;
+  private readonly cacheOperationsTotal: Counter<'cache_name' | 'result'>;
 
   constructor() {
     // Node process/event-loop/GC metrics (heap, CPU, event-loop lag,
@@ -100,6 +101,21 @@ export class MetricsService {
       labelNames: ['job_name', 'status'],
       registers: [this.registry],
     });
+
+    // Phase 10, Module 8 (Caching) — labeled by `cache_name`, the
+    // NAMESPACE segment of a `CacheService` key (`"<namespace>:<rest>"`,
+    // e.g. `"tenant-resolve"`/`"role-keys"`/`"dashboard-overview"`),
+    // never the full key — the full key includes a tenantId/email/date
+    // range, which would be the exact unbounded-cardinality mistake this
+    // codebase already guards against for HTTP route labeling (see
+    // `http_requests_total`'s own comment). A fixed, small set of real
+    // cache namespaces is safe to label by directly.
+    this.cacheOperationsTotal = new Counter({
+      name: 'cache_operations_total',
+      help: "Total number of CacheService.getOrLoad() calls, by the key's namespace and hit/miss",
+      labelNames: ['cache_name', 'result'],
+      registers: [this.registry],
+    });
   }
 
   recordHttpRequest(method: string, route: string, statusCode: number, durationMs: number): void {
@@ -118,6 +134,10 @@ export class MetricsService {
 
   recordJobExecution(jobName: string, status: 'succeeded' | 'dead_letter'): void {
     this.jobExecutionsTotal.inc({ job_name: jobName, status });
+  }
+
+  recordCacheOperation(cacheName: string, result: 'hit' | 'miss'): void {
+    this.cacheOperationsTotal.inc({ cache_name: cacheName, result });
   }
 
   getMetrics(): Promise<string> {

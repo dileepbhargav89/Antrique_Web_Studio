@@ -529,3 +529,59 @@ applied against the live local Postgres instance and verified via
 its pre-change version: 0 removed fields, 1 changed (a documentation
 string), confirming the frozen-contract-compatible, additive-only claim
 in §10.3.
+
+## 11. Phase 10, Module 8 — Caching (2026-07-30)
+
+**Scope.** Extends §5's `CacheService`/`CacheModule` (unchanged in shape)
+with hit/miss observability and two new consumers on the hottest
+genuinely-uncached read paths found by audit.
+
+**Observability.** `MetricsService` gained `cache_operations_total`
+(Counter, labels `cache_name`/`result`), incremented from inside
+`CacheService.getOrLoad()` itself so every current and future consumer
+gets the metric automatically. Labeled by the cache key's NAMESPACE
+segment only (the part before the first `:` — e.g. `tenant-resolve`,
+`dashboard-overview`, `role-keys`), never the full key, which carries a
+tenantId/email/date-range and would repeat the exact unbounded-
+cardinality mistake §6's HTTP route labeling already guards against.
+
+**New consumers.**
+- `TenantResolver.resolve()` — this codebase's single hottest uncached
+  read path: every request, authenticated or not, resolves a tenant
+  before anything else runs. 60s TTL, matching §5's `role-keys` order of
+  magnitude. Caches a `null` ("no active tenant matched") result too,
+  deliberately: a bogus or probing candidate (a guessed subdomain, a
+  made-up `X-Tenant-ID`) stops re-querying the database on every attempt
+  within the window, and the per-request behavior is unaffected either
+  way — a `null` already falls through to the next resolution priority
+  regardless of whether it came from cache or a fresh query.
+- `DashboardService.overview()` — this codebase's heaviest
+  service-layer aggregation (§9's own "widest fan-out" finding). 60s
+  TTL, cache key scoped by BOTH `tenantId` and the requested date range
+  so a custom `dateFrom`/`dateTo` query never collides with, or serves
+  stale data for, the default view. The cache wraps
+  `PerformanceLogger.measureAsync()`, not the other way around, so a hit
+  correctly logs no `DashboardService.overview` duration (only a real
+  miss did real work).
+
+**Deliberately NOT done.** A Redis-backed distributed cache was
+considered and rejected, same reasoning class as Module 7's Redis-queue
+decision: this is a single-instance-per-request-path deployment today,
+and an in-memory, process-local cache (§5's own documented limitation)
+is sufficient until a genuine multi-instance topology exists to justify
+the added complexity.
+
+**Ripple effect found and fixed.** Both `TenantResolver` and
+`DashboardService` gaining a new constructor dependency
+(`CacheService`) broke `dashboard.controller.spec.ts` and
+`report.controller.spec.ts` — both build `DashboardService` through a
+real `Test.createTestingModule` DI graph and neither had `CacheService`
+wired in. Fixed by providing a real `CacheService(new MetricsService())`
+instance (not a mock), the same pattern `dashboard.service.spec.ts` and
+`authorization.service.spec.ts` already use for this simple,
+deterministic service.
+
+**Validation.** `pnpm --filter @antrique/api typecheck`/`lint` clean;
+full suite 192 suites/1188 tests, all passing. `openapi.json`
+regenerated and diffed against its pre-change version: zero changes —
+expected, this module touches no HTTP surface.
