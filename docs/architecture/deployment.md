@@ -73,6 +73,74 @@ wired through. Run with `docker compose -f docker-compose.prod.yml up -d`
 — deliberately never auto-merged with `docker-compose.override.yml` (that
 file is dev-only hot-reload convenience).
 
+### Phase 10, Module 11 (Docker/infra) hardening (2026-07-31)
+
+Audit of the Docker layer itself for genuine gaps, found by comparing
+`api.Dockerfile`/`docker-compose.prod.yml` against their own documented
+scope (Milestone 14's own explicit "unchanged by Milestone 14
+(backend-only scope)" note on `web.Dockerfile` — a deliberate scope
+boundary at the time, not something meant to stay open indefinitely).
+**Not live-verified against a real `docker build`/`docker compose up`** —
+no Docker daemon is available in this dev sandbox (same limitation
+Module 6 already documented for verifying a Grafana/Prometheus stack);
+every change below was validated by careful static review (YAML parsed
+successfully, Dockerfile syntax cross-checked against `api.Dockerfile`'s
+own already-working equivalent) instead.
+
+- **`web.Dockerfile`** — added the same `HEALTHCHECK` (against `/`, the
+  public marketing home page — not portal/auth-gated, see
+  `apps/web/src/middleware.ts`) and non-root `antrique` user
+  `api.Dockerfile` already had, closing the asymmetry the earlier
+  milestone left open.
+- **`docker-compose.prod.yml` — fixed a real credential bug, not just a
+  hardening nice-to-have.** `POSTGRES_PASSWORD`/`POSTGRES_USER`/
+  `POSTGRES_DB` were hardcoded to the literal `antrique`/`antrique`/
+  `antrique`. Because Compose's `environment:` always overrides
+  `env_file:` for the same key, the hardcoded `api.environment.DATABASE_URL`
+  silently replaced whatever `apps/api/.env`'s own `DATABASE_URL` said —
+  an operator who correctly set a strong `DATABASE_URL` in their real
+  `.env` had it invisibly clobbered with a trivially guessable one by this
+  compose file. Now `${POSTGRES_PASSWORD:?...}` (Compose's "required
+  variable" interpolation) — the whole `docker compose` invocation fails
+  immediately with a clear message if it's unset, rather than silently
+  deploying with a guessable password. Read from a real root-level `.env`
+  (see `.env.example`'s own new entries) — a DIFFERENT file from
+  `apps/api/.env`; the override of `DATABASE_URL` itself stays intentional
+  (`api` must always reach the `postgres` service by its Docker-network
+  hostname).
+- **`docker-compose.prod.yml` — `web` now gates on `api`'s healthcheck**
+  (`depends_on: api: condition: service_healthy`), matching
+  `postgres`/`redis`'s own already-established pattern in the same file.
+  Deliberately NOT applied to the dev `docker-compose.yml` — that file's
+  `docker-compose.override.yml` always switches `api` to the `dev` build
+  target, which has no `HEALTHCHECK` at all (only `runtime` defines one),
+  so this condition would hang forever there.
+- **`docker-compose.prod.yml` — log rotation added to every service**
+  (`json-file` driver, `max-size: 10m`, `max-file: 5`). Docker's default
+  `json-file` driver has no size cap; this app already writes structured
+  JSON logs to stdout on every request (`LoggingModule`), so an unbounded
+  log file on a long-lived single-host deployment eventually fills the
+  host disk.
+- **`docker-compose.prod.yml` — resource limits added to every service**
+  (`deploy.resources.limits.cpus`/`memory`). A starting point, not derived
+  from real load-testing data on this deployment shape (none has been run
+  — the load-testing work in `performance.md` is application-level, not
+  container-level) — bounds the worst case (a leak/runaway process taking
+  down the whole host) rather than tuning for throughput.
+
+**Deliberately NOT done, and why:** `terraform/`/`k8s/`/`observability/`
+remain placeholders — filling them in requires a real hosting-target
+decision, a genuine infrastructure choice outside any code-only pass's
+own scope (same reasoning Module 10's own CI/CD audit already applied to
+`deploy-staging.yml`/`deploy-production.yml`'s placeholder push/rollout
+steps). Redis authentication was considered and rejected for now:
+nothing in this app actually opens a Redis connection yet (`REDIS_URL` is
+only validated as a well-formed URL — see `ci.yml`'s own comment),
+so securing a dependency not yet functionally wired to anything would be
+speculative hardening, not a genuine current gap. `nginx.conf` remains
+unwired into any compose file — already a deliberate, documented
+placeholder for local single-origin routing, not something broken.
+
 ## 2. CI/CD (`.github/workflows/ci.yml`)
 
 Full pipeline reference (every job, execution order, quality gates,

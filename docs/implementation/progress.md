@@ -98,6 +98,40 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 10, Module 11 (Docker/infra) (`infrastructure/docker/`,
+  `docker-compose.prod.yml`)** — audited the Docker layer against its own
+  documented scope boundaries (Milestone 14's explicit "web.Dockerfile
+  unchanged (backend-only scope)" note) and found a real credential bug
+  along the way, not just hardening gaps. `web.Dockerfile` gained the same
+  `HEALTHCHECK` (against `/`, the public marketing home page) and
+  non-root `antrique` user `api.Dockerfile` already had. `docker-compose
+  .prod.yml`'s `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` were
+  hardcoded to the literal `antrique`/`antrique`/`antrique` — and because
+  Compose's `environment:` always overrides `env_file:` for the same key,
+  the hardcoded `api.environment.DATABASE_URL` was silently clobbering
+  whatever `apps/api/.env`'s own `DATABASE_URL` said, invisibly replacing
+  an operator's real credentials with a guessable one. Fixed with
+  `${POSTGRES_PASSWORD:?...}` (Compose's required-variable interpolation)
+  — the whole `docker compose` invocation now fails fast with a clear
+  message if it's unset, read from a real root-level `.env` (new entries
+  in `.env.example`). Also added: `web`'s `depends_on: api` now gates on
+  `condition: service_healthy` (matching `postgres`/`redis`'s own
+  established pattern in the same file — deliberately NOT applied to the
+  dev `docker-compose.yml`, whose `dev` build target has no `HEALTHCHECK`
+  at all, which would hang forever); log rotation (`json-file`, 10m/5
+  files) and resource limits (`deploy.resources.limits`) on every service
+  in `docker-compose.prod.yml`. Deliberately NOT done: `terraform`/`k8s`/
+  `observability` (still placeholders — needs a real hosting-target
+  decision, same reasoning Module 10 already applied to the deploy
+  workflow placeholders), Redis authentication (nothing in this app
+  actually opens a Redis connection yet — securing an unused dependency
+  would be speculative), `nginx.conf` (already a deliberate, documented
+  placeholder, not broken). **Not live-verified against a real `docker
+  build`/`docker compose up`** — no Docker daemon available in this dev
+  sandbox (same limitation Module 6 documented for Grafana/Prometheus);
+  validated instead by YAML parsing and careful manual cross-check
+  against `api.Dockerfile`'s own already-working equivalent syntax. Full
+  writeup: `docs/architecture/deployment.md`'s new Module 11 section.
 - **Phase 10, Module 10 (CI/CD) (`.github/workflows/`)** — audited the
   four workflow files themselves (`ci.yml`, `codeql.yml`,
   `deploy-staging.yml`, `deploy-production.yml`) for genuine pipeline-
@@ -4661,7 +4695,17 @@ Legend: ⬜ not started · 🟨 in progress · ✅ done
    explicit least-privilege `permissions:` added to `ci.yml` and both
    deploy workflows, and a `concurrency` group added to `codeql.yml` —
    all three matching patterns already established elsewhere in this
-   codebase's own workflow files. **Module 11 (Docker/infra) is next.**
+   codebase's own workflow files. **Module 11 (Docker/infra) is done
+   (2026-07-31)** — see this file's own newest log entry and
+   `docs/architecture/deployment.md`'s new Module 11 section: `web
+   .Dockerfile` gained the same non-root/`HEALTHCHECK` hardening
+   `api.Dockerfile` already had, and `docker-compose.prod.yml`'s
+   hardcoded Postgres credentials (a real bug — they were silently
+   overriding an operator's real `DATABASE_URL`, not just a weak default)
+   are now a required, fail-fast env var, plus `web`→`api` healthcheck
+   gating, log rotation, and resource limits. Not live-verified — no
+   Docker daemon available in this sandbox. **Module 12 (Testing) is
+   next.**
 2. **Phase 9, Module 1 (Finance) Step 1 (Vendor Management) is done** —
    see this file's own newest log entry. Continue with **Step 2
    (Purchase Orders)**: new `PurchaseOrder`/`PurchaseOrderItem` models

@@ -18,25 +18,65 @@
 # unlike the dev compose file's `required: false`, since a production
 # deployment with no real config is a startup failure, not a fallback-to-
 # defaults situation.
+#
+# Phase 10, Module 11 (Docker/infra) — ALSO required before starting: a
+# real root-level `.env` (NOT apps/api/.env — a different file, auto-loaded
+# by `docker compose` itself for the `${...}` interpolation below, distinct
+# from `env_file:`'s per-container variables) setting `POSTGRES_PASSWORD`
+# to a real secret. Previously hardcoded as the literal string `antrique`
+# for both the `postgres` service's own credentials AND (silently
+# overriding whatever `apps/api/.env`'s own `DATABASE_URL` said, since
+# Compose's `environment:` always wins over `env_file:` for the same key)
+# `api`'s `DATABASE_URL` — meaning an operator who correctly set a strong
+# `DATABASE_URL` in `apps/api/.env` had it invisibly replaced with a
+# trivially guessable one by this file. The override itself is intentional
+# and stays (`api` must always reach the `postgres` SERVICE by its
+# Docker-network hostname, never whatever host a non-Compose `apps/api/.env`
+# might name), only the hardcoded weak VALUE was the bug. `POSTGRES_PASSWORD`
+# has no default — `${POSTGRES_PASSWORD:?...}` fails the whole `docker
+# compose` invocation immediately with the message below if it's unset,
+# rather than silently deploying with a guessable password.
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: antrique
-      POSTGRES_PASSWORD: antrique
-      POSTGRES_DB: antrique
+      POSTGRES_USER: ${POSTGRES_USER:-antrique}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in a real .env before deploying to production — see this file's own header comment}
+      POSTGRES_DB: ${POSTGRES_DB:-antrique}
     # No host port mapping — only `api` (on the same compose network)
     # needs to reach this; a production host has no reason to expose the
     # database port publicly.
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U antrique']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-antrique}']
       interval: 10s
       timeout: 5s
       retries: 10
+    # Phase 10, Module 11 (Docker/infra) — Docker's default `json-file` log
+    # driver has NO size cap unless configured; this app already writes
+    # structured JSON logs to stdout (LoggingModule) on every request, so an
+    # unbounded log file on a long-lived single-host deployment eventually
+    # fills the host disk. Same rotation policy on every service below, for
+    # the same reason.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    # Phase 10, Module 11 (Docker/infra) — starting point, not derived from
+    # real load-testing data on this deployment (none has been run — see
+    # docs/architecture/performance.md's own load-testing section for what
+    # HAS been measured, which is application-level, not container-level).
+    # Bounds the worst case (a leak/runaway query taking down the whole
+    # host) rather than tuning for throughput.
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
 
   redis:
     image: redis:7-alpine
@@ -46,6 +86,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256m
 
   api:
     build:
@@ -64,7 +114,10 @@ services:
         required: true
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://antrique:antrique@postgres:5432/antrique
+      # See this file's own header comment for why this deliberately
+      # overrides whatever apps/api/.env's own DATABASE_URL says, and why
+      # the credential VALUES below are no longer hardcoded.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-antrique}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in a real .env before deploying to production}@postgres:5432/${POSTGRES_DB:-antrique}
       REDIS_URL: redis://redis:6379
     ports:
       - '4000:4000'
@@ -73,6 +126,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1g
 
   web:
     build:
@@ -90,7 +153,27 @@ services:
     ports:
       - '3000:3000'
     depends_on:
-      - api
+      # Phase 10, Module 11 (Docker/infra) — gates web's startup on api
+      # actually being ready (the same real /health/live check via
+      # api.Dockerfile's own HEALTHCHECK), not just having started, matching
+      # postgres/redis's own already-established `condition: service_healthy`
+      # pattern in this same file. Deliberately NOT applied to the root
+      # docker-compose.yml (dev) — that file's `docker-compose.override.yml`
+      # always switches `api` to the `dev` build target, which has no
+      # HEALTHCHECK at all (only the `runtime` stage defines one), so this
+      # condition would wait forever there.
+      api:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512m
 
 volumes:
   postgres-data:
