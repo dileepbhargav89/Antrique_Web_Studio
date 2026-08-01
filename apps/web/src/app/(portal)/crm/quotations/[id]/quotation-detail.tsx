@@ -30,6 +30,7 @@ import {
   useSendQuotation,
   useAcceptQuotation,
   useRejectQuotation,
+  usePreviewQuotation,
 } from '@/features/crm/hooks/use-quotation-actions';
 import { getErrorCopy } from '@/lib/errors/error-copy';
 import { normalizeError } from '@/lib/errors/normalize-error';
@@ -57,6 +58,26 @@ function QuotationDetail({ id }: QuotationDetailProps) {
   const sendQuotation = useSendQuotation(id);
   const acceptQuotation = useAcceptQuotation(id);
   const rejectQuotation = useRejectQuotation(id);
+  const previewQuotation = usePreviewQuotation(id);
+
+  // Opens a blank tab synchronously (inside the click handler's own call
+  // stack) so pop-up blockers don't flag it, then points that tab at the
+  // rendered PDF's object URL once the request resolves. Revoked on a
+  // delay rather than immediately — the new tab needs the URL to stay
+  // valid long enough to actually load it.
+  async function handlePreview() {
+    const tab = window.open('', '_blank');
+    try {
+      const blob = await previewQuotation.mutateAsync();
+      const url = URL.createObjectURL(blob);
+      if (tab) {
+        tab.location.href = url;
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      tab?.close();
+    }
+  }
 
   if (isLoading) {
     return (
@@ -87,6 +108,16 @@ function QuotationDetail({ id }: QuotationDetailProps) {
                 <a href={quotation.pdfUrl} target="_blank" rel="noreferrer">
                   Download PDF
                 </a>
+              </Button>
+            ) : null}
+            {quotation.status === 'DRAFT' ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={previewQuotation.isPending}
+                onClick={handlePreview}
+              >
+                Preview
               </Button>
             ) : null}
             {quotation.status === 'DRAFT' ? (
@@ -234,6 +265,34 @@ function QuotationDetail({ id }: QuotationDetailProps) {
           Total: {quotation.currency} {quotation.totalAmount}
         </p>
       </div>
+
+      {quotation.paymentStages?.length ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-muted-foreground text-xs">Payment schedule</p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Stage</TableHead>
+                <TableHead>Trigger</TableHead>
+                <TableHead>Percentage</TableHead>
+                <TableHead>Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {quotation.paymentStages.map((stage) => (
+                <TableRow key={stage.id}>
+                  <TableCell>{stage.label}</TableCell>
+                  <TableCell>{stage.triggerNote ?? '—'}</TableCell>
+                  <TableCell>{stage.percentage}%</TableCell>
+                  <TableCell>
+                    {quotation.currency} {stage.amount}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
 
       {quotation.notes ? (
         <div>

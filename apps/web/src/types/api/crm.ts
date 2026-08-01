@@ -150,6 +150,17 @@ export interface QuotationItem {
   sortOrder: number;
 }
 
+/** Mirrors apps/api's `PaymentStageResponseDto` — a milestone-billing row
+ * on a quotation (e.g. "40% advance / 40% milestone / 20% final"). */
+export interface PaymentStage {
+  id: string;
+  label: string;
+  triggerNote: string | null;
+  percentage: string;
+  amount: string;
+  sortOrder: number;
+}
+
 export interface Quotation {
   id: string;
   quotationNumber: string;
@@ -168,6 +179,7 @@ export interface Quotation {
   createdAt: string;
   updatedAt: string;
   items?: QuotationItem[];
+  paymentStages?: PaymentStage[];
 }
 
 export type QuotationSortField = 'createdAt' | 'quotationNumber' | 'status' | 'totalAmount';
@@ -189,6 +201,14 @@ export interface CreateQuotationItemInput {
   unitPrice: number;
 }
 
+/** Mirrors apps/api's `CreatePaymentStageDto` — `amount` is deliberately
+ * absent, computed server-side from `totalAmount * percentage / 100`. */
+export interface CreatePaymentStageInput {
+  label: string;
+  triggerNote?: string;
+  percentage: number;
+}
+
 export interface CreateQuotationInput {
   leadId?: string;
   clientId?: string;
@@ -198,6 +218,8 @@ export interface CreateQuotationInput {
   validUntil?: string;
   notes?: string;
   items: CreateQuotationItemInput[];
+  /** Omitted entirely defaults to the backend's DEFAULT_PAYMENT_STAGES (40/40/20). */
+  paymentStages?: CreatePaymentStageInput[];
 }
 
 export interface UpdateQuotationInput {
@@ -207,6 +229,8 @@ export interface UpdateQuotationInput {
   validUntil?: string;
   notes?: string;
   items?: CreateQuotationItemInput[];
+  /** Omitted means "leave the existing schedule alone"; given REPLACES it entirely. */
+  paymentStages?: CreatePaymentStageInput[];
 }
 
 export interface RejectQuotationInput {

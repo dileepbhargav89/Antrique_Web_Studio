@@ -150,6 +150,26 @@ export async function request<T, Q = QueryParams>(
   return performRequest<T>(path, options as unknown as RequestOptions, false);
 }
 
+/**
+ * Binary counterpart to `request()` — for endpoints that respond with a
+ * file body (e.g. `GET /quotations/:id/preview`'s inline PDF) rather than
+ * JSON. Deliberately its own function instead of a `responseType` flag on
+ * `request()`: no retry/401-refresh handling (a preview render isn't
+ * idempotent-safe to silently retry the same way a GET-for-data is), and
+ * the success path returns `Blob`, not `T`.
+ */
+export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const response = await performFetch(path, { ...options, method: options.method ?? 'GET' });
+  if (response.ok) {
+    return response.blob();
+  }
+  const errorBody = (await response.json().catch(() => null)) as ApiErrorBody | null;
+  throw new ApiError(
+    response.status,
+    errorBody ?? { statusCode: response.status, message: response.statusText },
+  );
+}
+
 async function performRequest<T>(
   path: string,
   options: RequestOptions,

@@ -41,3 +41,9 @@ export function acceptQuotation(id: string): Promise<Quotation> {
 export function rejectQuotation(id: string, input: RejectQuotationInput): Promise<Quotation> {
   return apiClient.post<Quotation>(`quotations/${id}/reject`, input);
 }
+
+/** Renders the same PDF `sendQuotation()` would produce, DRAFT-only, with
+ * none of that route's side effects (see the backend route's own doc). */
+export function previewQuotation(id: string, signal?: AbortSignal): Promise<Blob> {
+  return apiClient.getBlob(`quotations/${id}/preview`, { signal });
+}

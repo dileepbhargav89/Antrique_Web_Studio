@@ -8,6 +8,7 @@ import {
   sendQuotation,
   acceptQuotation,
   rejectQuotation,
+  previewQuotation,
 } from '../api/quotations';
 import { quotationKeys } from '../api/query-keys';
 import type {
@@ -72,6 +73,17 @@ export function useRejectQuotation(id: string) {
       queryClient.setQueryData(quotationKeys.detail(id), quotation);
       queryClient.invalidateQueries({ queryKey: quotationKeys.lists() });
       toast.success('Quotation rejected.');
+    },
+  });
+}
+
+/** No cache write on success — a preview render isn't cacheable data, it's
+ * a one-off file the caller turns into a blob URL (see quotation-detail.tsx). */
+export function usePreviewQuotation(id: string) {
+  return useMutation({
+    mutationFn: () => previewQuotation(id),
+    onError: () => {
+      toast.error('Could not render the preview.');
     },
   });
 }

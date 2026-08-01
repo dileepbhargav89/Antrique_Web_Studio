@@ -1,8 +1,16 @@
-import { request, type GetOptions, type QueryParams, type RequestOptions } from './request';
+import {
+  request,
+  requestBlob,
+  type GetOptions,
+  type QueryParams,
+  type RequestOptions,
+} from './request';
 
 export const apiClient = {
   get: <T, Q = QueryParams>(path: string, options?: GetOptions<Q>) =>
     request<T, Q>(path, { ...options, method: 'GET' }),
+
+  getBlob: (path: string, options?: GetOptions) => requestBlob(path, { ...options, method: 'GET' }),
 
   post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
     request<T>(path, { ...options, method: 'POST', body }),

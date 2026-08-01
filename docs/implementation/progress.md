@@ -98,6 +98,40 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **CRM Quotation optimization pass, `apps/web` catch-up** — the backend
+  half of this pass (previous log entry) shipped with no corresponding
+  frontend: `apps/web`'s `Quotation`/`CreateQuotationInput`/
+  `UpdateQuotationInput` types had no `paymentStages` field at all, the
+  create form only posted line items, and there was no way to call the
+  new `GET /:id/preview` route from the UI. Closed the gap: (1)
+  `types/api/crm.ts` gained `PaymentStage`/`CreatePaymentStageInput` and
+  `paymentStages?` on all three quotation interfaces. (2)
+  `lib/validation/quotation.ts` gained `paymentStageFormSchema`, plus
+  `DEFAULT_PAYMENT_STAGES`/`PAYMENT_STAGE_PERCENTAGE_TOTAL`/`_TOLERANCE`
+  mirroring the backend's `crm.constant.ts` values exactly, so a form
+  that validates client-side never gets a surprise 400 back. (3)
+  `quotations/new/quotation-form.tsx` gained a second repeatable
+  sub-form (`useFieldArray`, same pattern the line-items section already
+  used) for the payment schedule, pre-filled with the 40/40/20 default,
+  live percentage-sum feedback. (4) `quotations/[id]/quotation-detail.tsx`
+  gained a Payment Schedule table and a DRAFT-only Preview button. (5) a
+  new `requestBlob()` in `services/api/request.ts` (`apiClient.getBlob`)
+  — the existing `request()` always calls `response.json()`, which can't
+  handle the preview route's binary PDF body; opens a blank tab
+  synchronously on click (pop-up-blocker-safe), then points it at the
+  resolved blob's object URL. Verified live against the real dev server
+  (not just typecheck/lint): logged in as the seeded manager, created a
+  quotation with a lead + line item + the default payment schedule,
+  confirmed the detail page's Payment Schedule table showed correctly
+  server-computed amounts (20000/20000/10000 off a 50000 total), clicked
+  Preview twice and confirmed via `read_network_requests` both
+  `GET /:id/preview` calls returned 200 and resolved to a real
+  `blob:` PDF in a new tab. `tsc --noEmit` and `eslint --max-warnings=0`
+  clean on every touched file. Not done, pre-existing gap unrelated to
+  this pass: there has never been an edit UI for a DRAFT quotation
+  (`useUpdateQuotation` is defined but has had zero callers since the
+  original Phase 2 build) — flagged here rather than silently worked
+  around, not fixed as part of this catch-up.
 - **CRM Quotation optimization pass (out of Phase 10's sequence) —
   professional letterhead PDF, payment-stage schedules, DRAFT preview,
   tenant branding (`apps/api/src/modules/crm/quotation.{service,

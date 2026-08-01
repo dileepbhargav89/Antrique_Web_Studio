@@ -30,7 +30,13 @@ import { DetailPageHeader } from '@/components/data/detail-page-header';
 import { useLeads } from '@/features/crm/hooks/use-leads';
 import { useClients } from '@/features/crm/hooks/use-clients';
 import { useCreateQuotation } from '@/features/crm/hooks/use-quotation-actions';
-import { quotationFormSchema, type QuotationFormValues } from '@/lib/validation/quotation';
+import {
+  quotationFormSchema,
+  DEFAULT_PAYMENT_STAGES,
+  PAYMENT_STAGE_PERCENTAGE_TOTAL,
+  PAYMENT_STAGE_PERCENTAGE_TOLERANCE,
+  type QuotationFormValues,
+} from '@/lib/validation/quotation';
 import { ROUTES } from '@/config/routes';
 import { CrmNav } from '../../crm-nav';
 
@@ -51,17 +57,31 @@ function QuotationForm() {
       currency: 'INR',
       notes: '',
       items: [{ description: '', quantity: 1, unitPrice: 0 }],
+      paymentStages: DEFAULT_PAYMENT_STAGES.map((stage) => ({ ...stage })),
     },
   });
   const { fields, append, remove } = useFieldArray({ control: form.control, name: 'items' });
+  const {
+    fields: stageFields,
+    append: appendStage,
+    remove: removeStage,
+  } = useFieldArray({ control: form.control, name: 'paymentStages' });
   const items = form.watch('items');
   const taxAmount = form.watch('taxAmount') ?? 0;
   const discountAmount = form.watch('discountAmount') ?? 0;
+  const paymentStages = form.watch('paymentStages');
   const subtotal = items.reduce(
     (sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
     0,
   );
   const total = subtotal + Number(taxAmount) - Number(discountAmount);
+  const stagePercentageTotal = paymentStages.reduce(
+    (sum, stage) => sum + (Number(stage.percentage) || 0),
+    0,
+  );
+  const stageTotalBalanced =
+    Math.abs(stagePercentageTotal - PAYMENT_STAGE_PERCENTAGE_TOTAL) <=
+    PAYMENT_STAGE_PERCENTAGE_TOLERANCE;
 
   async function onSubmit(values: QuotationFormValues) {
     const quotation = await createQuotation.mutateAsync({
@@ -73,6 +93,11 @@ function QuotationForm() {
       validUntil: values.validUntil || undefined,
       notes: values.notes || undefined,
       items: values.items,
+      paymentStages: values.paymentStages.map((stage) => ({
+        label: stage.label,
+        triggerNote: stage.triggerNote || undefined,
+        percentage: stage.percentage,
+      })),
     });
     router.push(`${ROUTES.portal.crmQuotations}/${quotation.id}`);
   }
@@ -230,6 +255,96 @@ function QuotationForm() {
             >
               <PlusIcon /> Add line item
             </Button>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <Label>Payment schedule</Label>
+            <div className="flex flex-col gap-3">
+              {stageFields.map((stage, index) => (
+                <div
+                  key={stage.id}
+                  className="grid grid-cols-[1fr_1fr_6rem_auto] items-start gap-2"
+                >
+                  <FormField
+                    control={form.control}
+                    name={`paymentStages.${index}.label`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input placeholder="Stage label" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name={`paymentStages.${index}.triggerNote`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input placeholder="Due on..." {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name={`paymentStages.${index}.percentage`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            placeholder="%"
+                            {...field}
+                            value={field.value as string | number}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={stageFields.length === 1}
+                    onClick={() => removeStage(index)}
+                    aria-label="Remove payment stage"
+                  >
+                    <TrashIcon />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-fit gap-2"
+              onClick={() => appendStage({ label: '', triggerNote: '', percentage: 0 })}
+            >
+              <PlusIcon /> Add payment stage
+            </Button>
+            <p
+              className={
+                stageTotalBalanced
+                  ? 'text-muted-foreground text-sm'
+                  : 'text-destructive text-sm font-medium'
+              }
+            >
+              Stages total {stagePercentageTotal.toFixed(2)}% (must equal 100%)
+            </p>
+            {form.formState.errors.paymentStages?.root ? (
+              <p className="text-destructive text-sm font-medium">
+                {form.formState.errors.paymentStages.root.message}
+              </p>
+            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
