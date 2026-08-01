@@ -20,7 +20,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    await callBackendService('/contact-requests', parsed.data);
+    // Empty string -> omitted: the backend's own `@IsOptional() @Matches(...)`
+    // treats an absent field as "no phone given," but would reject an empty
+    // string against its length-7-minimum pattern.
+    const { phone, ...rest } = parsed.data;
+    await callBackendService('/contact-requests', { ...rest, ...(phone ? { phone } : {}) });
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof BackendServiceError) {

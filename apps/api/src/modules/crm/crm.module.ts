@@ -52,16 +52,16 @@ import { QuotationRepository } from './repositories/quotation.repository';
 // directly, don't import a whole module for one narrow check" precedent
 // Milestone 7's own `domain-module-guide.md` §18 established.
 //
-// `exports: [LeadRepository, FollowUpRepository, ClientRepository]` —
-// LeadRepository/FollowUpRepository (Milestone 11) are for AdminModule's
-// "CRM: Lead conversion, Active follow-ups" analytics (both consumed via
-// their own already-public, inherited `BaseRepository.count()`).
+// `exports:` — LeadRepository/FollowUpRepository (Milestone 11) are for
+// AdminModule's "CRM: Lead conversion, Active follow-ups" analytics (both
+// consumed via their own already-public, inherited `BaseRepository.count()`).
 // ClientRepository (Phase 7, Project/Task/Milestone) is for ProjectsModule
 // — `POST /projects` needs to verify `clientId` (and `leadId`, via the
 // already-exported LeadRepository) actually exist/belong to this tenant
 // before creating a Project against them, same "import the owning module
 // for its exported repository" pattern BillingModule already established
-// for CatalogModule/OrdersModule.
+// for CatalogModule/OrdersModule. CustomerActivityRepository (Phase 7
+// follow-up) is for ContactModule — see the exports array's own comment.
 @Module({
   imports: [OrdersModule],
   controllers: [
@@ -89,6 +89,11 @@ import { QuotationRepository } from './repositories/quotation.repository';
     QuotationService,
     QuotationRepository,
   ],
-  exports: [LeadRepository, FollowUpRepository, ClientRepository],
+  // CustomerActivityRepository (Phase 7 follow-up) is for ContactModule's
+  // POST /contact-requests/:id/convert — creating a Lead from a triaged
+  // ContactRequest needs the same "Lead conversion creates
+  // CustomerActivity" business rule LeadService.create()/convert() already
+  // apply, not a duplicated one.
+  exports: [LeadRepository, FollowUpRepository, ClientRepository, CustomerActivityRepository],
 })
 export class CrmModule {}

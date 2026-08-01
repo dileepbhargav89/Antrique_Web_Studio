@@ -21,15 +21,14 @@ import { contactFormSchema, type ContactFormValues } from '@/lib/validation/cont
 type SubmitStatus = 'idle' | 'submitting' | 'success' | 'error';
 
 /**
- * Submits to `app/api/contact/route.ts` — a validated, logged placeholder seam, not a
- * real CRM/email integration yet (see that route's own header comment and
- * `docs/architecture/marketing-site.md`'s Risks section).
+ * Submits to `app/api/contact/route.ts`, which proxies to the real backend's
+ * `POST /contact-requests` — persists a ContactRequest and fires a confirmation email.
  */
 function ContactForm() {
   const [status, setStatus] = useState<SubmitStatus>('idle');
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactFormSchema),
-    defaultValues: { name: '', email: '', company: '', message: '' },
+    defaultValues: { name: '', email: '', phone: '', company: '', message: '' },
   });
 
   async function onSubmit(values: ContactFormValues) {
@@ -87,6 +86,19 @@ function ContactForm() {
               <FormLabel>Email</FormLabel>
               <FormControl>
                 <Input type="email" placeholder="you@company.com" autoComplete="email" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="phone"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Mobile Number (optional)</FormLabel>
+              <FormControl>
+                <Input type="tel" placeholder="+1 555 123 4567" autoComplete="tel" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>

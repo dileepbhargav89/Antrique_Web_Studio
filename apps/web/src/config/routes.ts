@@ -31,6 +31,9 @@ export const ROUTES = {
     inventoryWarehouses: '/inventory/warehouses',
     inventorySuppliers: '/inventory/suppliers',
     crmLeads: '/crm/leads',
+    /** The contact-form/quote-wizard inbox — triage a submission into a real Lead via
+     * `POST /contact-requests/:id/convert`. */
+    crmContactRequests: '/crm/contact-requests',
     crmFollowUps: '/crm/follow-ups',
     /** No standalone list — reached from a Lead's `convertedCustomerId` or an Order's
      * `customerId`. Build as `${crmCustomers}/${id}`. */

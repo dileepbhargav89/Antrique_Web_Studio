@@ -53,6 +53,34 @@ export interface ConvertLeadInput {
   note?: string;
 }
 
+/** `apps/api/prisma/schema.prisma`'s `ContactRequestStatus` enum. */
+export type ContactRequestStatus = 'NEW' | 'CONTACTED' | 'CONVERTED' | 'SPAM' | 'CLOSED';
+
+export interface ContactRequest {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  company: string | null;
+  message: string;
+  source: string | null;
+  status: ContactRequestStatus;
+  convertedLeadId: string | null;
+  createdAt: string;
+}
+
+export interface ContactRequestListParams {
+  page?: number;
+  limit?: number;
+  status?: ContactRequestStatus;
+  search?: string;
+}
+
+export interface ConvertContactRequestInput {
+  serviceInterest?: string[];
+  note?: string;
+}
+
 /** Phase 7 (Enterprise CRM/Project-Management) — the agency-pipeline
  * counterpart to ConvertLeadInput (which converts to a Customer, the
  * unrelated e-commerce pipeline). `name` is required only when the lead

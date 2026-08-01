@@ -39,8 +39,8 @@ type SubmitStatus = 'idle' | 'submitting' | 'success' | 'error';
 /**
  * One question per screen, contact captured last, per-step validation never drops data,
  * user-initiated submit only — the real spec (despite the filename, found in
- * `05-admin-dashboard.md`). Submits to `app/api/quote/route.ts` (a validated, logged
- * placeholder seam — see that route's own comment).
+ * `05-admin-dashboard.md`). Submits to `app/api/quote/route.ts`, which proxies to the
+ * real backend's `POST /contact-requests` (same as the marketing contact form).
  */
 function QuoteWizard() {
   const [stepIndex, setStepIndex] = useState(0);

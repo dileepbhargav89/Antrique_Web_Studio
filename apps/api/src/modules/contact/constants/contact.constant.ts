@@ -13,3 +13,19 @@ export const CONTACT_REQUEST_THROTTLE_TTL_MS = 60_000;
 // with the one other real "how did this person reach us" field in the
 // schema.
 export const CONTACT_REQUEST_SOURCE = 'website_contact_form';
+
+// The marketing site's "Get a Quote" wizard (app/(marketing)/quote) posts
+// here too now (previously an unwired placeholder — see that route's own
+// former header comment) — a distinct source value so triage/reporting
+// can tell a quote request apart from a plain contact-form message.
+export const QUOTE_REQUEST_SOURCE = 'website_quote_form';
+
+// Allow-list for CreateContactRequestDto's optional `source` override —
+// this is a PUBLIC, unauthenticated endpoint, so the value must be
+// restricted to known first-party call sites rather than accepting
+// arbitrary caller-supplied text (which would otherwise let anyone stamp
+// a fake source on inbox rows).
+export const ALLOWED_CONTACT_REQUEST_SOURCES = [
+  CONTACT_REQUEST_SOURCE,
+  QUOTE_REQUEST_SOURCE,
+] as const;

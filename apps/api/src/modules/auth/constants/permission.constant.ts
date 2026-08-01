@@ -133,6 +133,12 @@ export const PERMISSION = {
   // internally, never through a client-facing route.
   LEADS_READ: 'leads:read',
   LEADS_WRITE: 'leads:write',
+  // Contact-request inbox/triage (modules/contact) — wired here now that
+  // a real authenticated caller exists (GET list + POST convert), per
+  // this key's own "add only when a real caller needs it" rule (see
+  // modules/contact/README.md's now-resolved "What's not built" note).
+  CONTACT_REQUESTS_READ: 'contact_requests:read',
+  CONTACT_REQUESTS_WRITE: 'contact_requests:write',
   CUSTOMER_NOTES_READ: 'customer_notes:read',
   CUSTOMER_NOTES_WRITE: 'customer_notes:write',
   CUSTOMER_NOTES_DELETE: 'customer_notes:delete',

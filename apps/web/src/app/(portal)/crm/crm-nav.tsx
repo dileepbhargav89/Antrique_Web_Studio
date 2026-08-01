@@ -5,6 +5,7 @@ import { ROUTES } from '@/config/routes';
 
 const TABS = [
   { href: ROUTES.portal.crmLeads, label: 'Leads' },
+  { href: ROUTES.portal.crmContactRequests, label: 'Contact Requests' },
   { href: ROUTES.portal.crmClients, label: 'Clients' },
   { href: ROUTES.portal.crmQuotations, label: 'Quotations' },
   { href: ROUTES.portal.crmFollowUps, label: 'Follow-ups' },

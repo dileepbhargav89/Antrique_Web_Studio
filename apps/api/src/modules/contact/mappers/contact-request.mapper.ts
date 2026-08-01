@@ -10,7 +10,12 @@ export function toContactRequestResponseDto(
     contactRequest.id,
     contactRequest.name,
     contactRequest.email,
+    contactRequest.phone,
+    contactRequest.company,
+    contactRequest.message,
+    contactRequest.source,
     contactRequest.status,
+    contactRequest.convertedLeadId,
     contactRequest.createdAt,
   );
 }
