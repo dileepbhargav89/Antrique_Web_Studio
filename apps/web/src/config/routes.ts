@@ -59,6 +59,7 @@ export const ROUTES = {
     adminNotifications: '/admin/notifications',
     adminAuditLogs: '/admin/audit-logs',
     adminReports: '/admin/reports',
+    adminSettings: '/admin/settings',
     /** Reached from a product's detail page, not its own nav item — Bespoke has no
      * standalone submission entity (see docs/implementation/decisions.md). Build as
      * `${bespokeCustomize}/${productId}`. */

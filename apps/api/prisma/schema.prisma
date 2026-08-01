@@ -78,36 +78,37 @@ model Tenant {
   deletedAt DateTime? @map("deleted_at")
   deletedBy String?   @map("deleted_by") @db.Uuid
 
-  users           User[]
-  roles           Role[]
-  sessions        Session[]
-  clients         Client[]
-  leads           Lead[]
-  contactRequests ContactRequest[]
-  projects        Project[]
-  projectMembers  ProjectMember[]
-  milestones      Milestone[]
-  tasks           Task[]
-  documents       Document[]
-  quotations      Quotation[]
-  quotationItems  QuotationItem[]
-  invoices        Invoice[]
-  invoiceItems    InvoiceItem[]
-  payments        Payment[]
-  media           Media[]
-  blogs           Blog[]
-  testimonials    Testimonial[]
-  notifications   Notification[]
-  activityLogs    ActivityLog[]
-  auditLogs       AuditLog[]
-  settings        Setting[]
-  rolePermissions RolePermission[]
-  userRoles       UserRole[]
-  categories      Category[]
-  collections     Collection[]
-  products        Product[]
-  productVariants ProductVariant[]
-  productImages   ProductImage[]
+  users                  User[]
+  roles                  Role[]
+  sessions               Session[]
+  clients                Client[]
+  leads                  Lead[]
+  contactRequests        ContactRequest[]
+  projects               Project[]
+  projectMembers         ProjectMember[]
+  milestones             Milestone[]
+  tasks                  Task[]
+  documents              Document[]
+  quotations             Quotation[]
+  quotationItems         QuotationItem[]
+  quotationPaymentStages QuotationPaymentStage[]
+  invoices               Invoice[]
+  invoiceItems           InvoiceItem[]
+  payments               Payment[]
+  media                  Media[]
+  blogs                  Blog[]
+  testimonials           Testimonial[]
+  notifications          Notification[]
+  activityLogs           ActivityLog[]
+  auditLogs              AuditLog[]
+  settings               Setting[]
+  rolePermissions        RolePermission[]
+  userRoles              UserRole[]
+  categories             Category[]
+  collections            Collection[]
+  products               Product[]
+  productVariants        ProductVariant[]
+  productImages          ProductImage[]
 
   // Milestone 6 (Bespoke Customizer Engine)
   fabricCategories             FabricCategory[]
@@ -895,12 +896,13 @@ model Quotation {
   deletedAt DateTime? @map("deleted_at")
   deletedBy String?   @map("deleted_by") @db.Uuid
 
-  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  lead       Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  client     Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  preparedBy User?           @relation("QuotationPreparedBy", fields: [preparedById], references: [id], onDelete: SetNull)
-  items      QuotationItem[]
-  invoices   Invoice[]
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  lead          Lead?                   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  client        Client?                 @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  preparedBy    User?                   @relation("QuotationPreparedBy", fields: [preparedById], references: [id], onDelete: SetNull)
+  items         QuotationItem[]
+  paymentStages QuotationPaymentStage[]
+  invoices      Invoice[]
 
   // NOTE (Phase 1.1B): partial unique WHERE deleted_at IS NULL — see User note above.
   @@unique([tenantId, quotationNumber])
@@ -933,6 +935,34 @@ model QuotationItem {
   @@index([tenantId])
   @@index([quotationId])
   @@map("quotation_items")
+}
+
+/// Installment schedule for a Quotation's PDF (added alongside the
+/// professional-letterhead redesign — see pdf/README.md's own
+/// long-flagged "no logo/theming" gap). `amount` is always server-computed
+/// (`totalAmount * percentage / 100`), same "never trust a client-supplied
+/// amount" discipline `QuotationItem.amount` already establishes — the
+/// service layer, not the schema, enforces that percentages across a
+/// quotation's stages sum to 100.
+model QuotationPaymentStage {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  tenantId    String  @map("tenant_id") @db.Uuid
+  quotationId String  @map("quotation_id") @db.Uuid
+  sortOrder   Int     @default(0) @map("sort_order")
+  label       String
+  triggerNote String? @map("trigger_note")
+  percentage  Decimal @db.Decimal(5, 2)
+  amount      Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([quotationId])
+  @@map("quotation_payment_stages")
 }
 
 enum InvoiceStatus {

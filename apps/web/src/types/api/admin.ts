@@ -127,3 +127,24 @@ export interface GenerateReportInput {
   dateFrom?: string;
   dateTo?: string;
 }
+
+/** Hand-authored from `apps/api/src/settings/dto/{update-branding,branding-response}.dto.ts` —
+ * powers both the Admin Settings page and the quotation PDF letterhead. */
+export interface BrandingSettings {
+  companyName: string | null;
+  tagline: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  taxId: string | null;
+  bankDetails: string | null;
+  logoUrl: string | null;
+}
+
+export type UpdateBrandingInput = Partial<Omit<BrandingSettings, 'logoUrl'>>;

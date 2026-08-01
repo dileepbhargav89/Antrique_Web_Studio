@@ -29,6 +29,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { EmailModule } from './email/email.module';
 import { StorageModule } from './storage/storage.module';
 import { PdfModule } from './pdf/pdf.module';
+import { SettingsModule } from './settings/settings.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -206,6 +207,14 @@ import { FinanceModule } from './modules/finance/finance.module';
     // CrmModule's new QuotationService (Invoice, Phase 5, is a known
     // second consumer). See pdf/README.md.
     PdfModule,
+    // Tenant branding (company info + logo for quotation letterheads) —
+    // @Global(), same tier as StorageModule/PdfModule above. Two real
+    // consumers from day one: this module's own SettingsController (Admin
+    // Settings page) and CrmModule's QuotationService (PDF letterhead) —
+    // living here, not nested under AdminModule, is what avoids a
+    // circular import (AdminModule already imports CrmModule). See
+    // settings/settings.module.ts's own comment.
+    SettingsModule,
     // Marketing-site contact form (Phase 7) — ContactRequest's first real
     // consumer (the model existed since Phase 1.1A, unused). Public,
     // unauthenticated route. See modules/contact/README.md.

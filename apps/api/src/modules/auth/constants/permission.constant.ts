@@ -227,6 +227,13 @@ export const PERMISSION = {
   // either).
   VENDORS_READ: 'vendors:read',
   VENDORS_WRITE: 'vendors:write',
+  // Tenant branding (company name/address/logo for quotation letterheads)
+  // — Admin-only, same tier as every other tenant-wide configuration
+  // surface (`system:read`, `audit_logs:read`) rather than the broader
+  // Manager+ tier `dashboard:read`/`reports:*` use; branding affects every
+  // outbound client-facing document, not just internal reporting.
+  SETTINGS_READ: 'settings:read',
+  SETTINGS_WRITE: 'settings:write',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION)[keyof typeof PERMISSION];

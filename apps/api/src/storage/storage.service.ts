@@ -1,6 +1,6 @@
 import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import storageConfig from '../config/storage/storage.config';
 
 export interface UploadFileInput {
@@ -67,6 +67,27 @@ export class StorageService {
     );
 
     return this.buildPublicUrl(input.key);
+  }
+
+  // New (Quotation PDF letterhead) — the one caller that needs bytes
+  // BACK, not just a URL: QuotationPdfService embeds the tenant's logo
+  // via pdfkit's `doc.image()`, which needs a real Buffer, and a public
+  // bucket URL isn't guaranteed fetchable from inside the render call
+  // (private bucket, no `publicUrlBase`, etc.) — going through the same
+  // authenticated S3 client `upload()` already uses is the reliable path.
+  async download(key: string): Promise<Buffer> {
+    if (!this.client || !this.config.bucket) {
+      throw new ServiceUnavailableException(
+        'File storage is not configured — set STORAGE_BUCKET/STORAGE_REGION/' +
+          'STORAGE_ACCESS_KEY_ID/STORAGE_SECRET_ACCESS_KEY (see apps/api/.env.example).',
+      );
+    }
+
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.config.bucket, Key: key }),
+    );
+    const bytes = await response.Body?.transformToByteArray();
+    return Buffer.from(bytes ?? new Uint8Array());
   }
 
   // Public (Phase 7, Project/Task/Milestone) — `upload()` returns a URL at

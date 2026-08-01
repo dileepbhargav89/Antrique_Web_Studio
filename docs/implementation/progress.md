@@ -3,7 +3,7 @@
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 
-## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints), Module 5 (Observability) complete (`docs/architecture/operations.md` §10 — tenantId/userId now flow into every log line, sensitive-field redaction, process-level crash handlers, structured bootstrap/shutdown logs), Module 6 (Monitoring) complete (`docs/architecture/operations.md` §11 — real GET /metrics via prom-client, token-gated, cardinality-safe route labeling; alerting/dashboards/uptime-monitoring audited and deliberately deferred, no destination to build against), and Module 7 (Background Jobs) complete (`docs/architecture/operations.md` §12 — first real `@Cron()`-scheduled job (SessionCleanupScheduler, every 6h), jobs_executions_total metric; Redis-backed queue audited and deliberately deferred despite Redis being deployed, no worker-process topology exists to justify it) — working through remaining modules sequentially, Module 8 (Caching) next**
+## Current status: **Backend v1.0 shipped and API-frozen; Frontend Engineering Foundation + Design System + Application Runtime Architecture + Marketing Website (built + reviewed) + Authentication UI (built + reviewed) + Business Portal (all 7 Backend v1.0 modules, built + reviewed) complete; Phase 7 Project/Task/Milestone module (the one greenfield gap Phase 7's own workflow audit found) built end-to-end; Phase 8 (AI Workspace) Steps 1–8 — provider abstraction + prompt library + AI Proposal Generator + Requirement Analyzer + Project Estimator + Task Generator + Content Assistant + Email Assistant — all complete on the backend (no `apps/web` UI yet for Steps 3–8); Phase 9 (Enterprise Operations Suite), Module 1 (Finance) Step 1 (Vendor Management) built + live-verified end-to-end, Steps 2–7 queued, PAUSED (not abandoned) in favor of Phase 10; all Phase 7/8/9-Step-1/apps/web work committed 2026-07-30 (17 logical commits, `git log v1.0.0..HEAD`); Phase 10 (Production Engineering, Scalability & Platform Hardening, 15 modules) opened 2026-07-30, Module 1 (API Performance) complete (`docs/architecture/performance.md` §10), Module 2 (Frontend Performance) complete (`docs/architecture/frontend.md`'s Module 2 section), Module 3 (Security Hardening) complete (`docs/architecture/security.md` §16, including the RLS SET LOCAL wiring flagged in Module 1), Module 4 (Authentication & Session Security) complete (`docs/architecture/security.md` §17 — real session-backed refresh rotation + reuse detection, account lockout, concurrent-session limits, JWT `jti`, real logout/session-management endpoints), Module 5 (Observability) complete (`docs/architecture/operations.md` §10 — tenantId/userId now flow into every log line, sensitive-field redaction, process-level crash handlers, structured bootstrap/shutdown logs), Module 6 (Monitoring) complete (`docs/architecture/operations.md` §11 — real GET /metrics via prom-client, token-gated, cardinality-safe route labeling; alerting/dashboards/uptime-monitoring audited and deliberately deferred, no destination to build against), and Module 7 (Background Jobs) complete (`docs/architecture/operations.md` §12 — first real `@Cron()`-scheduled job (SessionCleanupScheduler, every 6h), jobs_executions_total metric; Redis-backed queue audited and deliberately deferred despite Redis being deployed, no worker-process topology exists to justify it) — working through remaining modules sequentially, Module 8 (Caching) next; out of that sequence, a CRM Quotation optimization pass (real letterhead PDF via new `QuotationPdfService`, payment-stage schedules, `GET /:id/preview`, and a new tenant-branding `SettingsModule` feeding the letterhead + Admin Settings page) is now complete — see newest log entry**
 
 **Documentation-lag note (found and fixed 2026-07-30):** Phase 8 Step 8
 (Email Assistant) was already fully built, tested, and wired in — module,
@@ -98,6 +98,51 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **CRM Quotation optimization pass (out of Phase 10's sequence) —
+  professional letterhead PDF, payment-stage schedules, DRAFT preview,
+  tenant branding (`apps/api/src/modules/crm/quotation.{service,
+  controller}.ts`, `apps/api/src/pdf/quotation-pdf.service.ts`, new
+  `apps/api/src/settings/` module, `apps/web/.../admin/settings/`)** —
+  the existing Quotation module (Phase 1.1B/2) rendered proposals through
+  the generic `DocumentPdfService` with no company branding and a flat
+  total, no payment schedule. This pass: (1) a new `QuotationPdfService`
+  (`apps/api/src/pdf/quotation-pdf.service.ts`), a dedicated
+  letterhead renderer — kept separate from `DocumentPdfService` rather
+  than parameterizing it, since Invoice (the other consumer) doesn't need
+  branding/payment-stage concerns; both now live in the same `@Global()`
+  `PdfModule`. (2) `QuotationPaymentStage`, a new schema model
+  (migration `20260801210000_add_quotation_payment_stages`, applied and
+  verified against the dev DB) — `POST/PATCH /quotations` accepts a
+  stage list (`label`/`triggerNote`/`percentage`), server-validates
+  percentages sum to 100 within tolerance, and computes each stage's
+  `amount` from `totalAmount` server-side, same "never trust a
+  client-supplied amount" discipline the line items already followed;
+  omitting `paymentStages` falls back to `DEFAULT_PAYMENT_STAGES`.
+  Editing a quotation re-derives every stage's amount against the fresh
+  total even when `paymentStages` itself isn't in the request body, so
+  the schedule can't silently drift out of sync with item/tax/discount
+  changes. (3) `GET /quotations/:id/preview` — renders the exact PDF
+  `POST /:id/send` would produce, DRAFT-only, with none of `send()`'s
+  side effects (no S3 upload, no status transition, no email), so a
+  draft's branding/logo/payment schedule can be checked before the
+  terminal Send action; SENT+ quotations already have a real immutable
+  `pdfUrl` that serves as their "preview." (4) a new, `@Global()`
+  `SettingsModule` (`apps/api/src/settings/`) for tenant branding
+  (company name/address/tax ID/bank details + logo upload via the
+  existing `StorageService`) — deliberately not nested under
+  `AdminModule` to avoid a circular import (`AdminModule` already imports
+  `CrmModule`); consumed by both the new Admin Settings page
+  (`apps/web/src/app/(portal)/admin/settings/`) and
+  `QuotationService.buildPdfInput()` (fetches the logo's raw bytes via
+  `StorageService.download()` when one is set). Verified with real
+  commands, not assumed: new specs (`quotation.service.spec.ts`,
+  `quotation-pdf.service.spec.ts`, `settings.service.spec.ts` — 17
+  tests, all passing), `tsc --noEmit` clean on both `apps/api` and
+  `apps/web`, ESLint clean on every touched file, and the new migration
+  applied cleanly to the dev database (was still pending going into this
+  verification pass). Not done: proposal templates and revision history
+  remain out of scope, as originally flagged in the Phase 2 log entry
+  below — this pass didn't touch that gap.
 - **Phase 10, Module 11 (Docker/infra) (`infrastructure/docker/`,
   `docker-compose.prod.yml`)** — audited the Docker layer against its own
   documented scope boundaries (Milestone 14's explicit "web.Dockerfile

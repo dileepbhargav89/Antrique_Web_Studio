@@ -13,9 +13,13 @@ import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { RejectQuotationDto } from './dto/reject-quotation.dto';
 import { QuotationListQueryDto } from './dto/quotation-list-query.dto';
 import { QuotationResponseDto } from './dto/quotation-response.dto';
+import { CreatePaymentStageDto } from './dto/create-payment-stage.dto';
 import { toQuotationResponseDto } from './mappers/quotation.mapper';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import {
+  DEFAULT_PAYMENT_STAGES,
+  PAYMENT_STAGE_PERCENTAGE_TOLERANCE,
+  PAYMENT_STAGE_PERCENTAGE_TOTAL,
   QUOTATION_EDITABLE_STATUSES,
   QUOTATION_NUMBER_GENERATION_MAX_ATTEMPTS,
   QUOTATION_NUMBER_PREFIX,
@@ -23,7 +27,8 @@ import {
 import { QuotationStatus } from '../../../generated/prisma/enums';
 import { Prisma } from '../../../generated/prisma/client';
 import { isUniqueConstraintViolation } from '../../utils/prisma-error.util';
-import { DocumentPdfService } from '../../pdf';
+import { QuotationPdfService, QuotationPdfInput } from '../../pdf';
+import { SettingsService } from '../../settings';
 import { StorageService } from '../../storage';
 import { JobRunner } from '../../jobs';
 import { SendEmailJob } from '../../email';
@@ -64,7 +69,8 @@ export class QuotationService {
     private readonly quotationRepository: QuotationRepository,
     private readonly leadRepository: LeadRepository,
     private readonly clientRepository: ClientRepository,
-    private readonly documentPdfService: DocumentPdfService,
+    private readonly quotationPdfService: QuotationPdfService,
+    private readonly settingsService: SettingsService,
     private readonly storageService: StorageService,
     private readonly jobRunner: JobRunner,
     private readonly sendEmailJob: SendEmailJob,
@@ -103,6 +109,11 @@ export class QuotationService {
     const taxAmount = new Prisma.Decimal(dto.taxAmount ?? 0);
     const discountAmount = new Prisma.Decimal(dto.discountAmount ?? 0);
     const totalAmount = subtotal.add(taxAmount).sub(discountAmount);
+    const preparedStages = this.buildPaymentStageRows(
+      tenantId,
+      dto.paymentStages ?? DEFAULT_PAYMENT_STAGES,
+      totalAmount,
+    );
 
     let lastError: unknown;
     for (let attempt = 0; attempt < QUOTATION_NUMBER_GENERATION_MAX_ATTEMPTS; attempt++) {
@@ -123,9 +134,10 @@ export class QuotationService {
             validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
             notes: dto.notes,
             items: { create: preparedItems },
+            paymentStages: { create: preparedStages },
           }),
         );
-        return toQuotationResponseDto(quotation, quotation.items);
+        return toQuotationResponseDto(quotation, quotation.items, quotation.paymentStages);
       } catch (error) {
         if (isUniqueConstraintViolation(error)) {
           lastError = error;
@@ -144,7 +156,7 @@ export class QuotationService {
     if (!quotation) {
       throw new NotFoundException(`Quotation ${id} not found`);
     }
-    return toQuotationResponseDto(quotation, quotation.items);
+    return toQuotationResponseDto(quotation, quotation.items, quotation.paymentStages);
   }
 
   async list(
@@ -199,42 +211,55 @@ export class QuotationService {
 
     const quotation = await this.quotationRepository.runInTransaction(async (tx) => {
       let subtotal = existing.subtotalAmount;
+      let preparedItems: Prisma.QuotationItemUncheckedCreateWithoutQuotationInput[] | undefined;
       if (dto.items) {
         await this.quotationRepository.deleteItemsInTx(tx, id);
-        const preparedItems: Prisma.QuotationItemUncheckedCreateWithoutQuotationInput[] =
-          dto.items.map((item, index) => ({
-            tenantId,
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            amount: new Prisma.Decimal(item.quantity).mul(item.unitPrice),
-            sortOrder: index,
-          }));
+        preparedItems = dto.items.map((item, index) => ({
+          tenantId,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          amount: new Prisma.Decimal(item.quantity).mul(item.unitPrice),
+          sortOrder: index,
+        }));
         subtotal = preparedItems.reduce(
           (sum, item) => sum.add(item.amount as Prisma.Decimal),
           new Prisma.Decimal(0),
         );
-        return this.quotationRepository.updateInTx(tx, id, {
-          currency: dto.currency,
-          subtotalAmount: subtotal,
-          taxAmount,
-          discountAmount,
-          totalAmount: subtotal.add(taxAmount).sub(discountAmount),
-          validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
-          notes: dto.notes,
-          items: { create: preparedItems },
-        });
       }
+      const totalAmount = subtotal.add(taxAmount).sub(discountAmount);
+
+      // Payment-stage amounts are `totalAmount * percentage / 100` — always
+      // stale-checked and rewritten here, even when `dto.paymentStages`
+      // itself is omitted, since `totalAmount` can still have moved
+      // (items/tax/discount changed): re-deriving each existing stage's
+      // amount against the fresh total is what keeps the schedule from
+      // silently drifting out of sync with the quotation it belongs to.
+      await this.quotationRepository.deletePaymentStagesInTx(tx, id);
+      const stageSource: Array<
+        Pick<CreatePaymentStageDto, 'label' | 'triggerNote' | 'percentage'>
+      > =
+        dto.paymentStages ??
+        existing.paymentStages.map((stage) => ({
+          label: stage.label,
+          triggerNote: stage.triggerNote ?? undefined,
+          percentage: Number(stage.percentage),
+        }));
+      const preparedStages = this.buildPaymentStageRows(tenantId, stageSource, totalAmount);
+
       return this.quotationRepository.updateInTx(tx, id, {
         currency: dto.currency,
+        ...(preparedItems ? { subtotalAmount: subtotal } : {}),
         taxAmount,
         discountAmount,
-        totalAmount: subtotal.add(taxAmount).sub(discountAmount),
+        totalAmount,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
         notes: dto.notes,
+        ...(preparedItems ? { items: { create: preparedItems } } : {}),
+        paymentStages: { create: preparedStages },
       });
     });
-    return toQuotationResponseDto(quotation, quotation.items);
+    return toQuotationResponseDto(quotation, quotation.items, quotation.paymentStages);
   }
 
   // "PDF generation" / "Email proposal" — the one forward transition
@@ -255,28 +280,8 @@ export class QuotationService {
     }
 
     const recipient = await this.resolveRecipient(existing.leadId, existing.clientId, tenantId);
-
-    const pdfBuffer = await this.documentPdfService.render({
-      documentLabel: 'Quotation',
-      documentNumber: existing.quotationNumber,
-      issuedDate: new Date(),
-      validUntilOrDueDate: existing.validUntil,
-      validUntilOrDueLabel: 'Valid until',
-      billToName: recipient.name,
-      billToEmail: recipient.email,
-      currency: existing.currency,
-      lineItems: existing.items.map((item) => ({
-        description: item.description,
-        quantity: item.quantity.toString(),
-        unitPrice: item.unitPrice.toString(),
-        amount: item.amount.toString(),
-      })),
-      subtotalAmount: existing.subtotalAmount.toString(),
-      taxAmount: existing.taxAmount.toString(),
-      discountAmount: existing.discountAmount.toString(),
-      totalAmount: existing.totalAmount.toString(),
-      notes: existing.notes,
-    });
+    const pdfInput = await this.buildPdfInput(existing, recipient, tenantId);
+    const pdfBuffer = await this.quotationPdfService.render(pdfInput);
     const pdfUrl = await this.storageService.upload({
       key: `quotations/${tenantId}/${existing.id}.pdf`,
       body: pdfBuffer,
@@ -317,7 +322,28 @@ export class QuotationService {
       });
     }
 
-    return toQuotationResponseDto(updated, existing.items);
+    return toQuotationResponseDto(updated, existing.items, existing.paymentStages);
+  }
+
+  // Renders the exact same PDF `send()` would produce, WITHOUT any of
+  // send()'s side effects (no S3 upload, no status transition, no email)
+  // — a pure read, so a DRAFT can be checked (branding/logo, payment
+  // schedule, line items) before committing to the terminal `Send`
+  // action. DRAFT-only: SENT+ quotations already have a real, immutable
+  // `pdfUrl` — that IS their "preview."
+  async preview(id: string, tenantId: string): Promise<Buffer> {
+    const existing = await this.quotationRepository.findActiveById(id, tenantId);
+    if (!existing) {
+      throw new NotFoundException(`Quotation ${id} not found`);
+    }
+    if (existing.status !== QuotationStatus.DRAFT) {
+      throw new BadRequestException(
+        `Only DRAFT quotations can be previewed (current status: ${existing.status})`,
+      );
+    }
+    const recipient = await this.resolveRecipient(existing.leadId, existing.clientId, tenantId);
+    const pdfInput = await this.buildPdfInput(existing, recipient, tenantId);
+    return this.quotationPdfService.render(pdfInput);
   }
 
   async accept(id: string, tenantId: string): Promise<QuotationResponseDto> {
@@ -334,7 +360,7 @@ export class QuotationService {
       where: { id },
       data: { status: QuotationStatus.ACCEPTED },
     });
-    return toQuotationResponseDto(updated, existing.items);
+    return toQuotationResponseDto(updated, existing.items, existing.paymentStages);
   }
 
   async reject(
@@ -355,7 +381,7 @@ export class QuotationService {
       where: { id },
       data: { status: QuotationStatus.REJECTED },
     });
-    return toQuotationResponseDto(updated, existing.items);
+    return toQuotationResponseDto(updated, existing.items, existing.paymentStages);
   }
 
   private assertExactlyOneSubject(leadId?: string, clientId?: string): void {
@@ -376,21 +402,119 @@ export class QuotationService {
     leadId: string | null,
     clientId: string | null,
     tenantId: string,
-  ): Promise<{ name: string; email: string | null }> {
+  ): Promise<{ name: string; email: string | null; organization: string | null }> {
     if (leadId) {
       const lead = await this.leadRepository.findActiveById(leadId, tenantId);
-      return { name: lead?.contactName ?? 'there', email: lead?.contactEmail ?? null };
+      return {
+        name: lead?.contactName ?? 'there',
+        email: lead?.contactEmail ?? null,
+        organization: lead?.organization ?? null,
+      };
     }
     if (clientId) {
       const client = await this.clientRepository.findActiveById(clientId, tenantId);
-      return { name: client?.name ?? 'there', email: client?.primaryEmail ?? null };
+      // Client has no separate contact-name field — `name` IS the
+      // organization's name (unlike Lead, which has both), so no
+      // distinct `organization` value to surface here.
+      return {
+        name: client?.name ?? 'there',
+        email: client?.primaryEmail ?? null,
+        organization: null,
+      };
     }
-    return { name: 'there', email: null };
+    return { name: 'there', email: null, organization: null };
+  }
+
+  // Shared by send()/preview() — resolves tenant branding (fetching the
+  // logo's raw bytes via StorageService.download() when one is set) and
+  // assembles the full QuotationPdfService input from a fetched
+  // Quotation row, so both call sites render byte-identical output.
+  private async buildPdfInput(
+    quotation: NonNullable<Awaited<ReturnType<QuotationRepository['findActiveById']>>>,
+    recipient: { name: string; email: string | null; organization: string | null },
+    tenantId: string,
+  ): Promise<QuotationPdfInput> {
+    const branding = await this.settingsService.loadBranding(tenantId);
+    const logoBuffer = branding.logoStorageKey
+      ? await this.storageService.download(branding.logoStorageKey)
+      : null;
+
+    return {
+      quotationNumber: quotation.quotationNumber,
+      issuedDate: quotation.issuedAt ?? new Date(),
+      validUntil: quotation.validUntil,
+      currency: quotation.currency,
+      billToName: recipient.name,
+      billToOrganization: recipient.organization,
+      billToEmail: recipient.email,
+      lineItems: quotation.items.map((item) => ({
+        description: item.description,
+        quantity: item.quantity.toString(),
+        unitPrice: item.unitPrice.toString(),
+        amount: item.amount.toString(),
+      })),
+      subtotalAmount: quotation.subtotalAmount.toString(),
+      taxAmount: quotation.taxAmount.toString(),
+      discountAmount: quotation.discountAmount.toString(),
+      totalAmount: quotation.totalAmount.toString(),
+      notes: quotation.notes,
+      paymentStages: quotation.paymentStages.map((stage) => ({
+        label: stage.label,
+        triggerNote: stage.triggerNote,
+        percentage: stage.percentage.toString(),
+        amount: stage.amount.toString(),
+      })),
+      branding: {
+        companyName: branding.companyName,
+        tagline: branding.tagline,
+        addressLine1: branding.addressLine1,
+        addressLine2: branding.addressLine2,
+        city: branding.city,
+        state: branding.state,
+        postalCode: branding.postalCode,
+        country: branding.country,
+        phone: branding.phone,
+        email: branding.email,
+        website: branding.website,
+        taxId: branding.taxId,
+        bankDetails: branding.bankDetails,
+        logoBuffer,
+      },
+    };
   }
 
   private async generateQuotationNumber(tenantId: string): Promise<string> {
     const year = new Date().getUTCFullYear();
     const count = await this.quotationRepository.countForTenantAndYear(tenantId, year);
     return `${QUOTATION_NUMBER_PREFIX}-${year}-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  // Shared by create()/update() — validates the given stages' percentages
+  // sum to 100 (within floating-point tolerance) and computes each
+  // `amount` server-side from `totalAmount`, same "never trust a
+  // client-supplied amount" discipline this service already applies to
+  // line items.
+  private buildPaymentStageRows(
+    tenantId: string,
+    stages: ReadonlyArray<Pick<CreatePaymentStageDto, 'label' | 'triggerNote' | 'percentage'>>,
+    totalAmount: Prisma.Decimal,
+  ): Prisma.QuotationPaymentStageUncheckedCreateWithoutQuotationInput[] {
+    const percentageTotal = stages.reduce((sum, stage) => sum + stage.percentage, 0);
+    if (
+      Math.abs(percentageTotal - PAYMENT_STAGE_PERCENTAGE_TOTAL) >
+      PAYMENT_STAGE_PERCENTAGE_TOLERANCE
+    ) {
+      throw new BadRequestException(
+        `Payment stage percentages must sum to 100 (got ${percentageTotal})`,
+      );
+    }
+    return stages.map((stage, index) => ({
+      tenantId,
+      label: stage.label,
+      triggerNote: stage.triggerNote,
+      percentage: new Prisma.Decimal(stage.percentage),
+      amount: totalAmount.mul(stage.percentage).div(100),
+      sortOrder: index,
+    }));
   }
 }

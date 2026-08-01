@@ -1,5 +1,6 @@
 import { QuotationStatus } from '../../../../generated/prisma/enums';
 import { QuotationItemResponseDto } from './quotation-item-response.dto';
+import { PaymentStageResponseDto } from './payment-stage-response.dto';
 
 export class QuotationResponseDto {
   constructor(
@@ -20,5 +21,6 @@ export class QuotationResponseDto {
     readonly createdAt: Date,
     readonly updatedAt: Date,
     readonly items?: QuotationItemResponseDto[],
+    readonly paymentStages?: PaymentStageResponseDto[],
   ) {}
 }

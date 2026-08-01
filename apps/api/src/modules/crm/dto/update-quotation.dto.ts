@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { CreateQuotationItemDto } from './create-quotation-item.dto';
+import { CreatePaymentStageDto } from './create-payment-stage.dto';
 
 // Request DTO for PATCH /quotations/:id — only reachable while DRAFT
 // (QuotationService.assertEditable()). No leadId/clientId — the
@@ -50,4 +51,14 @@ export class UpdateQuotationDto {
   @ValidateNested({ each: true })
   @Type(() => CreateQuotationItemDto)
   items?: CreateQuotationItemDto[];
+
+  // Same replace-the-full-set semantics as `items` above — omitted means
+  // "leave the existing schedule alone," given means "replace it
+  // entirely" (delete + recreate in the same transaction).
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreatePaymentStageDto)
+  paymentStages?: CreatePaymentStageDto[];
 }

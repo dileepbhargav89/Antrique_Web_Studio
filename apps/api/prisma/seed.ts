@@ -941,6 +941,22 @@ const PERMISSIONS: Array<{ key: string; resource: string; action: string; descri
     action: 'write',
     description: 'Create or edit vendors',
   },
+  // Tenant branding (company name/address/logo used on quotation
+  // letterheads) — Admin-only, same tier as `system:read`/`audit_logs:read`
+  // (granted only via admin/super_admin's full-set `PERMISSIONS.map`
+  // below, deliberately absent from every other role's explicit list).
+  {
+    key: 'settings:read',
+    resource: 'settings',
+    action: 'read',
+    description: 'View tenant branding/settings',
+  },
+  {
+    key: 'settings:write',
+    resource: 'settings',
+    action: 'write',
+    description: 'Edit tenant branding/settings',
+  },
 ];
 
 // Milestone 3 (Role & Permission Foundation) added `super_admin`,

@@ -8,6 +8,7 @@ const TABS = [
   { href: ROUTES.portal.adminNotifications, label: 'Notifications' },
   { href: ROUTES.portal.adminAuditLogs, label: 'Audit Logs' },
   { href: ROUTES.portal.adminReports, label: 'Reports' },
+  { href: ROUTES.portal.adminSettings, label: 'Settings' },
 ] as const;
 
 function AdminNav() {

@@ -5,6 +5,7 @@ import { Prisma } from '../../../../generated/prisma/client';
 
 const QUOTATION_RELATIONS_INCLUDE = {
   items: { orderBy: { sortOrder: 'asc' as const } },
+  paymentStages: { orderBy: { sortOrder: 'asc' as const } },
 } satisfies Prisma.QuotationInclude;
 
 // The closest existing model to the brief's "Proposal" concept — see
@@ -72,5 +73,13 @@ export class QuotationRepository extends BaseRepository<PrismaService['quotation
   // updateInTx() itself since not every update touches items.
   deleteItemsInTx(tx: Prisma.TransactionClient, quotationId: string) {
     return tx.quotationItem.deleteMany({ where: { quotationId } });
+  }
+
+  // Same replace-on-update shape as deleteItemsInTx() above, for
+  // QuotationPaymentStage — UpdateQuotationDto.paymentStages follows the
+  // identical "delete all, recreate via the caller's nested `create`"
+  // pattern.
+  deletePaymentStagesInTx(tx: Prisma.TransactionClient, quotationId: string) {
+    return tx.quotationPaymentStage.deleteMany({ where: { quotationId } });
   }
 }

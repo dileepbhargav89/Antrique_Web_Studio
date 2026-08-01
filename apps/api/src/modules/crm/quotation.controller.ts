@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { QUOTATION_ROUTE } from './constants/crm.constant';
 import { QuotationService } from './quotation.service';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
@@ -94,6 +96,32 @@ export class QuotationController {
     @Tenant() tenant: TenantContext,
   ): Promise<QuotationResponseDto> {
     return this.quotationService.findById(id, tenant.tenantId);
+  }
+
+  @Get(':id/preview')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions(PERMISSION.QUOTATIONS_READ)
+  @ApiOperation({
+    summary: 'Render a DRAFT quotation to PDF without sending it',
+    description:
+      'Streams the same PDF `POST /:id/send` would produce, with none of that route’s side ' +
+      'effects (no storage upload, no status change, no email) — lets a draft be checked before ' +
+      'it becomes terminal. DRAFT only; SENT+ quotations already have a real, immutable pdfUrl.',
+  })
+  @ApiStandardAuthErrors()
+  @ApiValidationError()
+  @ApiNotFoundError('quotation')
+  async preview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Tenant() tenant: TenantContext,
+    @Res() res: Response,
+  ): Promise<void> {
+    const pdf = await this.quotationService.preview(id, tenant.tenantId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="preview.pdf"',
+    });
+    res.send(pdf);
   }
 
   @Patch(':id')

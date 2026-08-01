@@ -2,3 +2,10 @@
 export { PdfModule } from './pdf.module';
 export { DocumentPdfService } from './document-pdf.service';
 export type { BusinessDocumentInput, BusinessDocumentLineItem } from './document-pdf.service';
+export { QuotationPdfService } from './quotation-pdf.service';
+export type {
+  QuotationPdfInput,
+  QuotationPdfLineItem,
+  QuotationPdfPaymentStage,
+  QuotationPdfBranding,
+} from './quotation-pdf.service';

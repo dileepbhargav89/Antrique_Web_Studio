@@ -57,6 +57,34 @@ export const QUOTATION_EDITABLE_STATUSES = ['DRAFT'] as const;
 export const QUOTATION_NUMBER_PREFIX = 'Q';
 export const QUOTATION_NUMBER_GENERATION_MAX_ATTEMPTS = 5;
 
+// Applied when POST /quotations omits `paymentStages` — a sensible
+// 40/40/20 default (advance / milestone / final) so every quotation ships
+// with a real payment schedule without the caller re-typing it every
+// time, while staying fully overridable (see QuotationService.create()).
+// Not used on update() — an omitted `paymentStages` there means "leave
+// the existing schedule alone," same as every other optional field.
+export const DEFAULT_PAYMENT_STAGES: ReadonlyArray<{
+  label: string;
+  triggerNote: string;
+  percentage: number;
+}> = [
+  { label: 'Advance Payment', triggerNote: 'Due on acceptance of this proposal', percentage: 40 },
+  {
+    label: 'Milestone Payment',
+    triggerNote: 'Due on completion of the development milestone',
+    percentage: 40,
+  },
+  { label: 'Final Payment', triggerNote: 'Due prior to final delivery & handover', percentage: 20 },
+];
+
+// Server-side validation, not just documentation: QuotationService
+// rejects any create()/update() where the given stages' percentages don't
+// sum to this within tolerance — floating-point arithmetic on
+// user-entered percentages (e.g. three stages of 33.33/33.33/33.34) never
+// lands on exactly 100.
+export const PAYMENT_STAGE_PERCENTAGE_TOTAL = 100;
+export const PAYMENT_STAGE_PERCENTAGE_TOLERANCE = 0.01;
+
 // Lead statuses "Archived leads immutable"/conversion both treat as
 // terminal — no further mutation via update()/convert()/archive() once
 // reached. Distinct from ORDER_CANCELLABLE_STATUSES's own shape
