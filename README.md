@@ -3,30 +3,42 @@
 Full-service web agency platform — a hybrid SEO marketing site, client portal,
 and internal admin console, in one pnpm/Turborepo monorepo.
 
-Status: **Backend (`apps/api`) complete — API-frozen, tested, documented,
-production-ready as of Backend v1.0.** Frontend (`apps/web`) has not been
-built yet. Tooling, CI, and containerization are set up and verified. See
-`docs/implementation/progress.md` for the build dashboard — read its
-"Completed work log" for the authoritative current status; do not rely on
-this file's own status line staying current between updates.
+> **Development is FROZEN as of 2026-08-03.** Start here:
+> **[`PROJECT_STATUS.md`](PROJECT_STATUS.md)** (what's built, what's not,
+> known issues, environment/services), **[`NEXT_STEPS.md`](NEXT_STEPS.md)**
+> (prioritized roadmap for resuming), **[`RESUME_DEVELOPMENT.md`](RESUME_DEVELOPMENT.md)**
+> (setup from scratch). See also `RELEASE_NOTES_v1.1.0.md` and
+> `CHANGELOG.md`.
+
+Status: both `apps/api` (backend, API-frozen since Backend v1.0) **and**
+`apps/web` (frontend — marketing site, auth, full business portal, Projects
+workspace) are built and live in production. See `PROJECT_STATUS.md` for
+exactly what's complete vs. partial vs. not started —  do not rely on this
+file's own status line staying current; `docs/implementation/progress.md`
+remains the full historical build log underneath `PROJECT_STATUS.md`.
 
 ## Stack
 
 - **Frontend** (`apps/web`): Next.js + TypeScript + Tailwind. SSG/ISR for the
-  indexed marketing site, SSR for the authenticated portal. **Not started.**
-- **Backend** (`apps/api`): NestJS modular monolith, complete. Real modules:
-  auth, catalog, bespoke (customizer), inventory, orders, crm, billing, admin
-  (analytics/notifications/audit/runtime) — see `apps/api/README.md` for the
-  full structure. `projects`/`content` remain scaffold-only (never built —
-  not part of any shipped milestone).
-- **Data:** PostgreSQL (RLS multi-tenancy) + Redis (cache/queue/rate-limit).
+  indexed marketing site, SSR for the authenticated portal (dashboard,
+  catalog, bespoke customizer, orders, inventory, CRM, billing, admin,
+  Projects workspace) — see `apps/web/README.md`.
+- **Backend** (`apps/api`): NestJS modular monolith. Real modules: auth,
+  catalog, bespoke (customizer), inventory, orders, crm, billing, admin
+  (analytics/notifications/audit/runtime), projects, prompts + 6 AI
+  Workspace features (backend-only, no UI yet), finance (Vendor Management
+  only so far) — see `apps/api/README.md` for the full structure. `content`
+  remains scaffold-only (never built).
+- **Data:** PostgreSQL (RLS multi-tenancy) + Redis (cache; no queue/worker
+  topology yet). Production: Supabase Postgres + Storage, managed Redis.
 - **Contract:** `apps/api/openapi.json` (CI-generated, always current — see
   `apps/api/README.md`) or the live `GET /api/docs` Swagger UI is the real
   source of truth. `packages/api-contract` is a pre-implementation design
   draft, superseded — see that package's own README before using it.
 
 Full architecture: `docs/architecture/architecture.md`. Design decisions:
-`docs/product/`.
+`docs/product/`. Live deployment topology: `docs/architecture/deployment.md`
+§8.
 
 ## Prerequisites
 
@@ -69,17 +81,20 @@ Run from the repo root; Turborepo fans these out to every workspace.
 ## Repository layout
 
 ```
-apps/api/            NestJS backend
-apps/web/             Next.js frontend (marketing + portal)
-packages/shared/       Shared types/validation (front + back)
-packages/api-contract/ OpenAPI contract (authoritative)
-packages/config/       Shared eslint/tsconfig/tailwind config
-database/               Superseded Sprint 1 scaffold, intentionally empty —
-                        see database/README.md; real schema/migrations/RLS
-                        live under apps/api/prisma/
-infrastructure/         Docker, Terraform, k8s, observability
-docs/                   Product, architecture, and build-tracking docs
+apps/api/               NestJS backend
+apps/web/                Next.js frontend (marketing + portal)
+packages/shared/          Shared types/validation (front + back)
+packages/api-contract/    OpenAPI contract draft (superseded — see its own README)
+packages/config/          Shared eslint/tsconfig/tailwind config
+infrastructure/            Docker, Terraform, k8s, observability
+docs/                      Product, architecture, and build-tracking docs
+PROJECT_STATUS.md           Current-state snapshot (start here)
+NEXT_STEPS.md                Prioritized roadmap for resuming development
+RESUME_DEVELOPMENT.md         Setup-from-scratch guide
 ```
+
+Note: the old `database/` directory (pre-Prisma Sprint-1 scaffold) has been
+removed — real schema/migrations/RLS live under `apps/api/prisma/`.
 
 ## Engineering standards
 

@@ -1,5 +1,13 @@
 # Progress Dashboard
 
+> **FROZEN 2026-08-03.** Development is paused. For the current-state
+> snapshot, start with repo-root `PROJECT_STATUS.md` instead of this file's
+> "Current status" line below (which stops being updated at the freeze
+> point). This file remains as the full historical session-by-session build
+> log underneath it — still useful for "why was X built this way," just not
+> the fastest way to get oriented. `NEXT_STEPS.md` has the roadmap for
+> resuming.
+
 The single place to see where the build is. Update at the end of every session.
 Tell Claude Code: "update docs/implementation/progress.md".
 

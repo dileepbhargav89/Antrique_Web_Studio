@@ -5,6 +5,14 @@ business modules (Catalog, Bespoke, Inventory, Orders, CRM, Billing) plus
 Admin (analytics/notifications/audit/runtime), hardened (Milestone 13) and
 production-infrastructure-complete (Milestone 14 — "this milestone
 completes the backend"), and API-frozen as of Backend v1.0 Review Phase 3.
+
+**Since v1.0.0 (see repo-root `PROJECT_STATUS.md` for the full picture):**
+`projects` (Project/Milestone/Task/Document/Comment, Phase 7), `prompts` +
+six AI Workspace feature modules — proposal-generator, requirement-analyzer,
+project-estimator, task-generator, content-assistant, email-assistant
+(Phase 8, backend-only, no `apps/web` UI yet), and `finance` (Vendor
+Management only so far, Phase 9 Step 1) were added. `content` remains a
+README-only scaffold, never built.
 See `docs/architecture/{architecture,backend,database,security,deployment,
 performance}.md` for the full design. The authoritative API contract is
 this implementation's own self-description — `openapi.json` (CI-generated

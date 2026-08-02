@@ -309,3 +309,42 @@ reconfiguring on every API version bump the business surface goes through.
   remain genuine placeholders, unchanged by this milestone (out of scope —
   provisioning real cloud infrastructure is a deployment/product decision,
   not a backend code change).
+
+## 8. Live production topology (current, as of 2026-08-03)
+
+This section documents what's actually deployed and serving real traffic
+today — distinct from the topologies in §7, which describe what this repo's
+own tooling builds toward. None of the below is provisioned via this
+repo's IaC (still placeholders, see §7) — it was set up manually outside
+version control, which is exactly why it needs to be written down here for
+anyone resuming work later.
+
+- **API** (`apps/api`): Render web service `antrique-api`, free tier,
+  Singapore region, auto-deploys from GitHub `main`.
+- **Web** (`apps/web`): Vercel project `antrique-web`, auto-deploys from the
+  same `main` branch.
+- **Postgres**: Supabase (`aws-0-ap-southeast-2.pooler.supabase.com`) — NOT
+  Render's own managed Postgres. `apps/api/src/config/database/
+  database.config.ts` uses `ssl: { rejectUnauthorized: false }` (not plain
+  `ssl: true`) specifically because Node's default TLS validation rejects
+  Supabase's cert chain — this is Prisma's own documented guidance for
+  Supabase, still encrypted, just skips chain validation.
+- **Storage**: Supabase Storage (S3-compatible), same project as Postgres.
+- **Redis**: a managed instance separate from Render's own managed Redis —
+  used for cache only (see `PROJECT_STATUS.md` §12).
+- **Migrations**: Render's free tier has no pre-deploy hook, so `prisma
+  migrate deploy` does **not** run automatically on push. Run it manually
+  against the Supabase `DATABASE_URL` after any new migration lands on
+  `main`.
+- **Seeding**: `apps/api/prisma/seed.ts` is dev-only and must never run
+  against this database. The one real production tenant row was created by
+  hand via a one-off script.
+- **Env vars in strict mode**: Turborepo 2's `envMode` is strict — any env
+  var not declared in `turbo.json`'s `env`/`globalEnv`/`passThroughEnv`
+  gets silently dropped from a task's `process.env`. `NEXT_PUBLIC_*` vars
+  survive via Vercel's framework inference; anything else needed at Vercel
+  build time must be listed explicitly in `turbo.json`'s `build` task `env`
+  array.
+
+See `PROJECT_STATUS.md` §6 for how this fits into overall deployment
+status, and §7 (`Environment variables`) for the full var reference.

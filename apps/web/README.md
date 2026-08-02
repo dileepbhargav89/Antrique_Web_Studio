@@ -38,7 +38,13 @@ src/
                     (+ transactions/warehouses/suppliers), crm (leads/
                     follow-ups/customers), billing (invoices/payments),
                     admin (dashboard/notifications/audit-logs/reports) —
-                    see docs/architecture/business-portal.md.
+                    see docs/architecture/business-portal.md. Since v1.0.0:
+                    projects/ (list + [id] detail — Milestones/Tasks
+                    list+Kanban/Files/Activity tabs, Phase 7); finance/
+                    vendors (+ [id] detail) — Phase 9 Step 1, the only
+                    Finance UI that exists so far. No UI exists yet for the
+                    six Phase 8 AI Workspace features (backend is complete
+                    — see repo-root PROJECT_STATUS.md).
     (auth)/         Public auth pages — layout.tsx (centered card, redirects
                     away if already authenticated). login/ (real — email +
                     password, expired-session messaging). No signup/
@@ -46,8 +52,9 @@ src/
     api/auth/       Next.js Route Handlers (BFF layer) — login/session/
                     refresh/logout. Owns the httpOnly session cookie; the
                     real backend (apps/api) never sees it (Bearer-only).
-    api/{contact,quote}/  Validated, logged placeholder lead-capture seam —
-                    no real CRM endpoint exists yet (Sprint 3 scope).
+    api/{contact,quote}/  Contact form persists to a real CRM ContactRequest
+                    + sends real email (Phase 7); Quote form remains an
+                    unconnected, logged-only placeholder.
     layout.tsx (skip link), error.tsx, global-error.tsx, not-found.tsx,
     loading.tsx, robots.ts, sitemap.ts
   components/
