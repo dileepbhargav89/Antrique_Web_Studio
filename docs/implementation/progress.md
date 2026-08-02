@@ -98,6 +98,54 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Phase 6 — Premium Brand Identity Integration**
+  (`apps/web/src/components/branding/{Logo,Wordmark}.tsx`,
+  `apps/web/src/app/(marketing)/layout.tsx`)** — replaced the marketing
+  navbar's plain-text "Antrique Web Studio" brand link with a real
+  monogram mark + two-line wordmark, built from the user-supplied
+  `docs/logo.png` (visual reference only, not traced) and
+  `docs/sample UI image.png` (the target integrated look). `Logo.tsx`:
+  an original vector recreation — circular ring + abstract "A" (two
+  gradient legs) + a lighter diagonal ribbon exiting past the ring —
+  three gradient-filled/stroked shapes, no raster data, gradient stops
+  built from `--accent` via `color-mix(in oklch, ...)` (same technique
+  `button.tsx` already uses) so the mark tracks the design system's own
+  gold/amber rather than a hard-coded palette; gradient/filter `id`s are
+  suffixed with `useId()` since the component can render more than once
+  per page. `Wordmark.tsx`: "ANTRIQUE" / "— WEB STUDIO —" two-line
+  lockup in the same accent gold. Sized `size-9 sm:size-11` (36px
+  mobile → 44px desktop, matching the spec exactly) inside one `<Link
+  aria-label="Antrique Web Studio — Home">` with `hover:scale-[1.03]`,
+  a `drop-shadow` glow on hover, and `focus-visible:ring-3` for
+  keyboard users — all plain CSS transitions (300ms ease), not gated on
+  `prefers-reduced-motion` (a small scale/glow micro-interaction, same
+  category `button.tsx`'s own unconditional hover states already fall
+  into, not the JS-driven motion primitives that
+  `lib/animation/use-reduced-motion.ts` gates). `Logo`'s icon is
+  `aria-hidden` at this call site (the parent link's `aria-label`
+  already supplies the accessible name — double-announcing would be
+  redundant) but exposes an optional `title` prop for any future
+  standalone usage, satisfying the brief's "SVG title" ask without
+  fighting screen-reader ergonomics here. Confirmed via `grep` that no
+  bitmap file is referenced by any component — the two reference PNGs
+  live only in `docs/`, used for eyes-on comparison during this session,
+  never imported. `tsc --noEmit`, `eslint`, and `next build`'s own
+  compile/typecheck/lint/static-generation phases (53/53 pages) are all
+  clean; `next build`'s final step then hits the pre-existing
+  Windows-only `output: standalone` symlink EPERM this file already
+  documents elsewhere (Sprint 1 tooling notes) — confirmed NOT a
+  regression by stashing this change and reproducing the identical
+  failure on unmodified `main` before restoring it. Verified live via
+  Playwright screenshots (the browser extension was disconnected this
+  session) in both light and dark `colorScheme`, at desktop (1440px)
+  and mobile (390px) viewports, plus explicit hover and keyboard-focus
+  states — mark renders correctly, wordmark scales proportionally on
+  mobile without wrapping/overlapping the hamburger trigger, and the
+  focus ring is clearly visible. Scope was deliberately narrow per the
+  brief ("do NOT redesign the entire navbar") — nav links' own existing
+  active-page gold underline (`site-nav.tsx`, already `bg-accent`) and
+  the mobile drawer were both left untouched; confirmed the drawer
+  carries no separate/duplicate brand text to keep in sync.
 - **Marketing site: floating WhatsApp chat + call-support widget**
   (`apps/web/src/components/marketing/support-widget.tsx`,
   `apps/web/src/config/contact.ts`) — a small fixed bottom-right pair of

@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Navbar } from '@/components/layout/navbar';
 import { Button } from '@/components/ui/button';
+import { Logo } from '@/components/branding/Logo';
+import { Wordmark } from '@/components/branding/Wordmark';
 import { MarketingMobileNav, MarketingNav } from '@/components/marketing/site-nav';
 import { ScrollProgressBar } from '@/components/marketing/scroll-progress-bar';
 import { SiteFooter } from '@/components/marketing/site-footer';
@@ -38,8 +40,13 @@ export default async function MarketingLayout({ children }: { children: React.Re
       <ScrollProgressBar />
       <Navbar
         brand={
-          <Link href={ROUTES.marketing.home} className="font-heading text-lg font-medium">
-            {appConfig.name}
+          <Link
+            href={ROUTES.marketing.home}
+            aria-label={`${appConfig.name} — Home`}
+            className="group flex items-center gap-2.5 rounded-lg transition-transform duration-300 ease-out hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <Logo className="transition-[filter] duration-300 ease-out group-hover:drop-shadow-[0_0_8px_var(--accent)]" />
+            <Wordmark />
           </Link>
         }
         nav={<MarketingNav serviceClusters={navServiceClusters} />}
