@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { MarketingMobileNav, MarketingNav } from '@/components/marketing/site-nav';
 import { ScrollProgressBar } from '@/components/marketing/scroll-progress-bar';
 import { SiteFooter } from '@/components/marketing/site-footer';
+import { SupportWidget } from '@/components/marketing/support-widget';
 import { appConfig } from '@/config/app';
 import { defaultMetadata } from '@/config/metadata';
 import { ROUTES } from '@/config/routes';
@@ -53,6 +54,7 @@ export default async function MarketingLayout({ children }: { children: React.Re
       />
       <main id="main-content">{children}</main>
       <SiteFooter serviceClusters={serviceClusters} />
+      <SupportWidget />
     </>
   );
 }

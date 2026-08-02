@@ -98,6 +98,27 @@ what that means concretely.
 Legend: ⬜ not started · 🟨 in progress · ✅ done
 
 ## Completed work log (newest first)
+- **Marketing site: floating WhatsApp chat + call-support widget**
+  (`apps/web/src/components/marketing/support-widget.tsx`,
+  `apps/web/src/config/contact.ts`) — a small fixed bottom-right pair of
+  circular icon buttons (WhatsApp `wa.me` deep link with a pre-filled
+  message, `tel:` call link), mounted once in
+  `(marketing)/layout.tsx` so it appears on every public marketing page.
+  Deliberately NOT added to `(portal)/layout.tsx` — logged-in
+  clients/staff already have a real account manager, and marketing/
+  portal layouts don't cross-import (CLAUDE.md's own rule). Uses the
+  existing design-token system (`bg-success`/`bg-primary`, `--z-fixed`)
+  rather than WhatsApp's own brand green, and the existing `Tooltip`
+  primitive (already globally provider-wrapped in
+  `providers/app-providers.tsx`) for the hover label — no new
+  dependencies. Contact number supplied directly by the user (`+91
+  9109059791`), centralized in one config file so it's a one-line change
+  later. Verified live against the real dev server: rendered on the
+  homepage, confirmed both `aria-label`s and `href`s resolve correctly
+  (`https://wa.me/919109059791?text=...`, `tel:+919109059791`), confirmed
+  the "Chat on WhatsApp" tooltip appears on hover, and confirmed the
+  widget does NOT render on the authenticated portal (`/dashboard`).
+  `tsc --noEmit` and `eslint --max-warnings=0` clean.
 - **CRM Quotation optimization pass, `apps/web` catch-up** — the backend
   half of this pass (previous log entry) shipped with no corresponding
   frontend: `apps/web`'s `Quotation`/`CreateQuotationInput`/
