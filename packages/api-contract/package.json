@@ -11,6 +11,6 @@
     "clean": "echo \"nothing to clean\""
   },
   "devDependencies": {
-    "yaml": "^2.6.1"
+    "yaml": "^2.9.1"
   }
 }
