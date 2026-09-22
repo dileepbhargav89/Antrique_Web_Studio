@@ -17,7 +17,7 @@
 # had ever actually run this image's `runtime` stage end to end before
 # this milestone's own live-boot validation.
 
-FROM node:22-alpine AS base
+FROM node:25-alpine AS base
 RUN npm install -g pnpm@9.15.9
 WORKDIR /repo
 
@@ -50,7 +50,7 @@ RUN pnpm --filter @antrique/api build
 RUN pnpm --filter @antrique/api deploy --prod /out
 
 # ---- runtime: minimal production image, no build tooling, non-root ----
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 ENV NODE_ENV=production
 # Milestone 14 — stamped at build time (see this file's own header
 # comment), read by env.validation.ts (APP_VERSION/GIT_COMMIT_SHA) and
